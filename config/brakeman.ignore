@@ -9,6 +9,16 @@
       "file": "app/services/media/frame_extractor.rb",
       "line": 65,
       "note": "False positive. ffmpeg is invoked via Open3.capture3 in array form (no shell), so arguments are passed as separate argv and cannot be shell-interpreted. The interpolated values are a literal prefix and timestamp_ms.to_i (an integer); the ffmpeg binary path comes from trusted server ENV (FFMPEG_BIN), not user input."
+    },
+    {
+      "warning_type": "File Access",
+      "warning_code": 16,
+      "fingerprint": "393f46a0956771e0f43e5a02fef7a73f39f3b551c18303e6adf7f8bceb556e70",
+      "check_name": "SendFile",
+      "message": "Parameter value used in file name",
+      "file": "app/controllers/storage/blobs_controller.rb",
+      "line": 23,
+      "note": "False positive. The key reaches send_file only after Storage.valid_token? verifies an HMAC keyed on the exact key string (secure_compare against sign_token(key, expires_at)). The app only ever signs keys within its own storage namespace, so a traversal path can't be forged without the server signing secret. local_path also returns nil unless the file exists. This mirrors the pre-existing send_data path access; send_file just streams it with Range support instead of buffering."
     }
   ],
   "brakeman_version": "7.1.0"
