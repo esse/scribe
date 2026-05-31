@@ -49,7 +49,7 @@ module Media
         segments.first[1] >= duration - MIN_SEGMENT_SECONDS
     end
 
-    # Total kept duration in seconds (drives credit metering on the edited video).
+    # Total kept duration in seconds.
     def kept_duration(segments)
       segments.sum { |s, e| e - s }
     end

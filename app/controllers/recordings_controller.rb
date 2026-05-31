@@ -45,13 +45,10 @@ class RecordingsController < ApplicationController
     end
   end
 
-  # POST /recordings/:id/complete — finalize upload and reserve credits
-  # (SPEC §7.2 step 4, §13.3). Returns 402 if the balance is insufficient.
+  # POST /recordings/:id/complete — finalize the upload (SPEC §7.2 step 4).
   #
-  # The pipeline no longer starts here: the user is handed to the in-browser
-  # editor to (optionally) trim the recording, and processing kicks off from
-  # #apply_edits. Credits are held now, on the full uploaded duration, as the
-  # gate; trimming only shortens the video, so the hold stays sufficient.
+  # The pipeline doesn't start here: the user is handed to the in-browser editor
+  # to (optionally) trim the recording, and processing kicks off from #apply_edits.
   def complete
     finalized = RecordingUpload.finalize(@recording, params.require(:tus_upload_id))
     @recording.assign_attributes(
@@ -61,21 +58,32 @@ class RecordingsController < ApplicationController
       mime: finalized[:mime]
     )
 
-    estimate = Credits::Meter.estimate_for(@recording)
-    begin
-      Credits::Ledger.hold!(user: Current.user, amount: estimate, reference: @recording)
-    rescue Credits::InsufficientCredits => e
-      render json: { error: "insufficient_credits", required: e.required, available: e.available }, status: :payment_required
-      return
-    end
-
     @recording.uploaded!
     render json: {
       id: @recording.id,
       status: @recording.status,
-      estimated_credits: estimate,
       edit_url: edit_recording_path(@recording)
     }
+  end
+
+  # POST /recordings/upload — ingest an existing video file (multipart). This is
+  # the "use a recording I already have" path: no live screen capture, just hand
+  # over a file and run the same pipeline. Mirrors the CLI `scribe:ingest` task.
+  def upload
+    file = params[:file]
+    if file.blank?
+      redirect_to(new_recording_path, alert: "Choose a video file to process.") and return
+    end
+
+    recording = RecordingIngest.from_upload(
+      user: Current.user,
+      io: file.to_io,
+      filename: file.original_filename,
+      content_type: file.content_type
+    )
+    redirect_to recording_path(recording), notice: "Processing your recording…"
+  rescue RecordingIngest::Error => e
+    redirect_to new_recording_path, alert: e.message
   end
 
   # GET /recordings/:id/edit — in-browser trim editor (SPEC §7). Plays the source
@@ -110,9 +118,8 @@ class RecordingsController < ApplicationController
     end
   end
 
-  # POST /recordings/:id/retry — re-run a failed stage (SPEC §8.1, §16.7). The
-  # hold was voided on failure, so we re-reserve credits (402 if short) and
-  # re-enqueue the stage's job, which resumes from already-persisted artifacts.
+  # POST /recordings/:id/retry — re-run a failed stage (SPEC §8.1, §16.7) by
+  # re-enqueuing the stage's job, which resumes from already-persisted artifacts.
   def retry
     unless @recording.failed?
       respond_with_retry(error: "not_failed", status: :unprocessable_entity)
@@ -120,14 +127,6 @@ class RecordingsController < ApplicationController
     end
 
     job = RETRY_JOBS[@recording.failed_stage] || TranscribeJob
-    estimate = Credits::Meter.estimate_for(@recording)
-    begin
-      Credits::Ledger.hold!(user: Current.user, amount: estimate, reference: @recording)
-    rescue Credits::InsufficientCredits => e
-      respond_with_retry(error: "insufficient_credits", required: e.required, available: e.available, status: :payment_required)
-      return
-    end
-
     @recording.update!(status: :uploaded, error_message: nil, failed_stage: nil)
     job.perform_later(@recording.id)
     respond_with_retry(status: :ok)

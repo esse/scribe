@@ -2,11 +2,11 @@
 # later chunks aren't standalone files, so tus performs an ordered, resumable
 # byte-append and the final object is one valid WebM.
 #
-# Dev/test back tus with the local filesystem; production should point its store
-# at S3/R2 (configure here from ENV when deploying).
+# Local-first: tus uploads are buffered on the filesystem, under the data dir so
+# in-flight uploads live in the same mountable folder as everything else.
 require "tus/server"
 
-tus_dir = ENV.fetch("TUS_DATA_DIR", Rails.root.join("tmp/tus-data").to_s)
+tus_dir = ENV.fetch("TUS_DATA_DIR", File.join(Scribe.config.data_dir, "tus"))
 FileUtils.mkdir_p(tus_dir)
 
 Tus::Server.opts[:storage] = Tus::Storage::Filesystem.new(tus_dir)
@@ -15,6 +15,6 @@ Tus::Server.opts[:redirect_download] = nil
 
 module Scribe
   def self.tus_data_dir
-    ENV.fetch("TUS_DATA_DIR", Rails.root.join("tmp/tus-data").to_s)
+    ENV.fetch("TUS_DATA_DIR", File.join(Scribe.config.data_dir, "tus"))
   end
 end

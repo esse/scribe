@@ -1,4 +1,9 @@
 class Current < ActiveSupport::CurrentAttributes
-  attribute :session
-  delegate :user, to: :session, allow_nil: true
+  # Local-first: a single implicit user. `Current.user` resolves to it lazily so
+  # controllers, jobs, and the CLI all share the same owner without any login.
+  attribute :user
+
+  def user
+    super || (self.user = User.local)
+  end
 end

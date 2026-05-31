@@ -4,8 +4,9 @@ source "https://rubygems.org"
 gem "rails", "~> 8.1.3"
 # The modern asset pipeline for Rails [https://github.com/rails/propshaft]
 gem "propshaft"
-# Use postgresql as the database for Active Record
-gem "pg", "~> 1.1"
+# SQLite — the entire datastore is a single file under the mountable data dir,
+# so the app needs no external database service (local-first).
+gem "sqlite3", ">= 2.1"
 # Use the Puma web server [https://github.com/puma/puma]
 gem "puma", ">= 5.0"
 # Use JavaScript with ESM import maps [https://github.com/rails/importmap-rails]
@@ -17,21 +18,16 @@ gem "stimulus-rails"
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]
 gem "jbuilder"
 
-# Use Active Model has_secure_password [https://guides.rubyonrails.org/active_model_basics.html#securepassword]
-gem "bcrypt", "~> 3.1.7"
-
-# --- Scribe additions (see SPEC §4) ---
-# S3-compatible object storage (Cloudflare R2 in prod, MinIO in dev). SPEC §4, §7.2.
-gem "aws-sdk-s3", require: false
+# --- Scribe additions ---
 # Resumable upload server implementing the tus protocol. SPEC §7.2.
 gem "tus-server", "~> 2.3"
-# Stripe one-time credit purchases. SPEC §12.
-gem "stripe", "~> 13.0"
-# Observability, wired from milestone 0. SPEC §4, §15.
-gem "sentry-ruby"
-gem "sentry-rails"
 # PDF export is rendered by the WeasyPrint CLI (HTML/CSS → PDF), invoked from
 # Exporters::Pdf — no Ruby gem required. SPEC §11.2.
+#
+# Local-first: recordings live on disk, results are written as files, billing
+# and accounts have been removed. The LLM is either the user's own Anthropic
+# key or a local llama model (Ollama / llama.cpp), and speech-to-text defaults
+# to a local Whisper CLI — so nothing has to leave the machine.
 
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem "tzinfo-data", platforms: %i[ windows jruby ]
@@ -68,8 +64,8 @@ group :development do
   # Use console on exceptions pages [https://github.com/rails/web-console]
   gem "web-console"
 
-  # Load .env for local secrets (AI/STT/Stripe keys). Development-only on purpose
-  # so the test suite stays offline and deterministic (SPEC §15).
+  # Load .env for local secrets (AI/STT keys). Loaded in development so the test
+  # suite stays offline and deterministic.
   gem "dotenv-rails"
 end
 

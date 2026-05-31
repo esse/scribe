@@ -30,6 +30,10 @@
 !/tmp/storage/
 !/tmp/storage/.keep
 
+# Local-first data directory: SQLite databases, recordings, generated manuals.
+# This is the mountable folder — never commit it.
+/data/
+
 /public/assets
 
 # Ignore key files for decrypting credentials and more.

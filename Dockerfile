@@ -1,9 +1,18 @@
 # syntax=docker/dockerfile:1
 # check=error=true
 
-# This Dockerfile is designed for production, not development. Use with Kamal or build'n'run by hand:
-# docker build -t scribe .
-# docker run -d -p 80:80 -e RAILS_MASTER_KEY=<value from config/master.key> --name scribe scribe
+# Local-first image. Build once, then run with your data folder mounted and your
+# own API key(s) — everything (SQLite DB, recordings, generated manuals) stays in
+# the mounted folder:
+#
+#   docker build -t scribe .
+#   docker run -p 3000:80 -v "$PWD/data:/data" \
+#     -e SECRET_KEY_BASE=$(openssl rand -hex 32) \
+#     -e ANTHROPIC_API_KEY=sk-ant-... \
+#     scribe
+#
+# Or point it at a local llama model instead of Anthropic:
+#   -e LLM_PROVIDER=local -e LLM_BASE_URL=http://host.docker.internal:11434/v1 -e LLM_MODEL=llama3.2-vision
 
 # For a containerized dev environment, see Dev Containers: https://guides.rubyonrails.org/getting_started_with_devcontainer.html
 
@@ -14,25 +23,31 @@ FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
 # Rails app lives here
 WORKDIR /rails
 
-# Install base packages
+# Install base packages. The media pipeline needs ffmpeg (scene detection, audio
+# extraction) and WeasyPrint (HTML→PDF export); sqlite is the datastore.
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y curl libjemalloc2 libvips postgresql-client && \
+    apt-get install --no-install-recommends -y \
+      curl libjemalloc2 libvips libsqlite3-0 ffmpeg weasyprint && \
     ln -s /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
-# Set production environment variables and enable jemalloc for reduced memory usage and latency.
+# Local-first runtime defaults: production env, the SQLite/recordings data dir at
+# the mount point, and Solid Queue running inside Puma so a single container does
+# both the web app and the background pipeline.
 ENV RAILS_ENV="production" \
     BUNDLE_DEPLOYMENT="1" \
     BUNDLE_PATH="/usr/local/bundle" \
     BUNDLE_WITHOUT="development" \
-    LD_PRELOAD="/usr/local/lib/libjemalloc.so"
+    LD_PRELOAD="/usr/local/lib/libjemalloc.so" \
+    SCRIBE_DATA_DIR="/data" \
+    SOLID_QUEUE_IN_PUMA="1"
 
 # Throw-away build stage to reduce size of final image
 FROM base AS build
 
 # Install packages needed to build gems
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y build-essential git libpq-dev libvips libyaml-dev pkg-config && \
+    apt-get install --no-install-recommends -y build-essential git libsqlite3-dev libvips libyaml-dev pkg-config && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 # Install application gems
@@ -62,7 +77,13 @@ FROM base
 
 # Run and own only the runtime files as a non-root user for security
 RUN groupadd --system --gid 1000 rails && \
-    useradd rails --uid 1000 --gid 1000 --create-home --shell /bin/bash
+    useradd rails --uid 1000 --gid 1000 --create-home --shell /bin/bash && \
+    mkdir -p /data && chown 1000:1000 /data
+
+# Everything persistent (SQLite DB, recordings, generated manual files) lives
+# here. Mount it to keep your data across container rebuilds.
+VOLUME /data
+
 USER 1000:1000
 
 # Copy built artifacts: gems, application

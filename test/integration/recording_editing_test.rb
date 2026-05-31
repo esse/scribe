@@ -7,8 +7,7 @@ class RecordingEditingTest < ActionDispatch::IntegrationTest
   include ActiveJob::TestHelper
 
   setup do
-    @user = users(:one)
-    sign_in_as(@user)
+    @user = User.local
     @recording = @user.recordings.create!(
       status: :uploaded,
       storage_key: "edit/source.webm",
@@ -16,9 +15,6 @@ class RecordingEditingTest < ActionDispatch::IntegrationTest
       mime: "video/webm"
     )
     Storage.put(@recording.storage_key, StringIO.new("fake-webm-bytes"), content_type: "video/webm")
-    # The pipeline's credit hold from /complete.
-    Credits::Ledger.grant_purchase!(user: @user, credits: 10, stripe_session_id: "cs_edit")
-    @hold = Credits::Ledger.hold!(user: @user, amount: 2, reference: @recording)
   end
 
   test "edit page renders for an editable recording" do
@@ -68,20 +64,5 @@ class RecordingEditingTest < ActionDispatch::IntegrationTest
            params: { segments: [ { start: 0, end: 10 } ] }
     end
     assert_response :unprocessable_entity
-  end
-
-  test "a user cannot edit another user's recording" do
-    other = users(:two).recordings.create!(status: :uploaded, storage_key: "x", duration_seconds: 10.0)
-    get edit_recording_path(other)
-    assert_response :not_found
-
-    post apply_edits_recording_path(other, format: :json), params: { segments: [] }
-    assert_response :not_found
-  end
-
-  test "unauthenticated users are redirected to sign in" do
-    sign_out
-    get edit_recording_path(@recording)
-    assert_redirected_to new_session_path
   end
 end

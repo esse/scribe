@@ -1,11 +1,6 @@
 require "tus/server"
 
 Rails.application.routes.draw do
-  # --- Auth (SPEC §4) ---
-  resource :session
-  resources :passwords, param: :token
-  resource :registration, only: %i[new create]
-
   # --- Recordings / upload (SPEC §7, §13) ---
   resources :recordings, only: %i[index new create show destroy] do
     member do
@@ -14,6 +9,10 @@ Rails.application.routes.draw do
       get :source_url
       post :apply_edits
       post :retry
+    end
+    collection do
+      # "Use an existing recording" — upload a video file you already have.
+      post :upload
     end
   end
 
@@ -31,19 +30,12 @@ Rails.application.routes.draw do
 
   resources :exports, only: %i[show]
 
-  # --- Credits / billing (SPEC §12, §13) ---
-  get "credits", to: "credits#index"
-  get "credits/balance", to: "credits#balance"
-  get "credits/packs", to: "credits#packs"
-  post "credits/checkout", to: "credits#checkout"
-  post "webhooks/stripe", to: "webhooks/stripe#create"
-
   # --- Signed disk blobs (SPEC §5) ---
   get "storage/blob", to: "storage/blobs#show"
 
   # Health check for load balancers / uptime monitors.
   get "up" => "rails/health#show", as: :rails_health_check
 
-  # Recorder is the landing page once signed in.
+  # The recorder is the landing page.
   root "recordings#new"
 end

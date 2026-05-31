@@ -1,11 +1,12 @@
 class CreateUsers < ActiveRecord::Migration[8.1]
   def change
+    # Local-first: there are no accounts. A single implicit local user owns all
+    # recordings (auto-provisioned on first use). The optional name is purely
+    # cosmetic (e.g. an author line on exported manuals).
     create_table :users do |t|
-      t.string :email_address, null: false
-      t.string :password_digest, null: false
+      t.string :name
 
       t.timestamps
     end
-    add_index :users, :email_address, unique: true
   end
 end

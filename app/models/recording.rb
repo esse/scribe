@@ -45,11 +45,6 @@ class Recording < ApplicationRecord
       (uploaded? || editing? || (failed? && failed_at_editing?))
   end
 
-  # The credit hold placed for this recording at /complete (SPEC §13.3).
-  def credit_hold
-    CreditTransaction.where(reference: self, kind: :hold).order(:created_at).last
-  end
-
   # Mark the pipeline as failed at a given stage and persist the error (SPEC §8.1).
   def fail!(stage:, error:)
     update!(status: :failed, failed_stage: stage, error_message: error.to_s.truncate(1000))

@@ -27,15 +27,8 @@
     <header class="topbar">
       <a href="/" class="brand">Scribe</a>
       <nav>
-        <% if authenticated? %>
-          <%= link_to "Record", new_recording_path %>
-          <%= link_to "Recordings", recordings_path %>
-          <%= link_to "Credits", credits_path %>
-          <%= button_to "Sign out", session_path, method: :delete, class: "linkbtn" %>
-        <% else %>
-          <%= link_to "Sign in", new_session_path %>
-          <%= link_to "Sign up", new_registration_path %>
-        <% end %>
+        <%= link_to "Record", new_recording_path %>
+        <%= link_to "Recordings", recordings_path %>
       </nav>
     </header>
 

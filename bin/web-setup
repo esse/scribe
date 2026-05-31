@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Provisions a Claude Code (web) session so tests/linters can run:
-# ensures ffmpeg, a running Postgres with a `root` role, gems, and the test DB.
+# Provisions a Claude Code (web) session so tests/linters can run: ensures
+# ffmpeg + WeasyPrint, installs gems, and prepares the SQLite databases.
+# Local-first: SQLite needs no server, so there's no Postgres/MinIO to start.
 # Idempotent and best-effort — never fails the session start.
 set -uo pipefail
 
@@ -25,19 +26,7 @@ if ! command -v weasyprint >/dev/null 2>&1; then
     && log "weasyprint installed" || log "could not install weasyprint (PDF export will be unavailable)"
 fi
 
-# Postgres.
-if command -v pg_ctlcluster >/dev/null 2>&1; then
-  if ! pg_isready >/dev/null 2>&1; then
-    log "starting postgres"
-    (pg_ctlcluster 16 main start >/dev/null 2>&1 || service postgresql start >/dev/null 2>&1) || true
-    sleep 2
-  fi
-  # A login role matching the app's default credentials.
-  sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='root'" 2>/dev/null | grep -q 1 \
-    || sudo -u postgres psql -c "CREATE ROLE root WITH LOGIN SUPERUSER PASSWORD 'postgres';" >/dev/null 2>&1 || true
-fi
-
-# Gems + test database.
+# Gems + SQLite databases (under ./data; no DB server required).
 if [ -f Gemfile ]; then
   log "installing gems"
   bundle install --quiet 2>/dev/null || true
