@@ -40,8 +40,8 @@ jobs:
       PGPASSWORD: postgres
     steps:
       - uses: actions/checkout@v4
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg + WeasyPrint (PDF export)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg weasyprint
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: .ruby-version

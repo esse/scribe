@@ -18,6 +18,13 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
     && log "ffmpeg installed" || log "could not install ffmpeg (continuing)"
 fi
 
+# WeasyPrint for PDF export (SPEC §11.2).
+if ! command -v weasyprint >/dev/null 2>&1; then
+  log "installing weasyprint"
+  (apt-get install -y weasyprint >/dev/null 2>&1 || sudo apt-get install -y weasyprint >/dev/null 2>&1) \
+    && log "weasyprint installed" || log "could not install weasyprint (PDF export will be unavailable)"
+fi
+
 # Postgres.
 if command -v pg_ctlcluster >/dev/null 2>&1; then
   if ! pg_isready >/dev/null 2>&1; then

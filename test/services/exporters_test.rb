@@ -2,11 +2,11 @@ require "test_helper"
 require "zip"
 
 # Exporter tests (SPEC §15): golden Markdown/HTML, PDF smoke (renders non-empty,
-# skipped when headless Chromium is unavailable).
+# skipped when WeasyPrint is unavailable).
 class ExportersTest < ActiveSupport::TestCase
-  # Smallest valid PNG (1x1, transparent).
+  # A valid 4x4 PNG (decodable by WeasyPrint/PIL, not just browsers).
   PNG_1X1 = Base64.decode64(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAEElEQVR4nGNgYPiHhIjiAACNIw/hUmVovQAAAABJRU5ErkJggg=="
   ).freeze
 
   setup do
@@ -79,7 +79,7 @@ class ExportersTest < ActiveSupport::TestCase
     assert bytes.bytesize.positive?
     assert bytes.start_with?("%PDF"), "expected a PDF header"
   rescue Exporters::Pdf::RendererUnavailable => e
-    skip "headless Chromium not available: #{e.message}"
+    skip "WeasyPrint not available: #{e.message}"
   end
 
   test "registry resolves built-in formats and rejects unknown" do

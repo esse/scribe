@@ -1,6 +1,9 @@
 module Exporters
   # PDF export (SPEC §11.2): composes the HTML exporter and renders it with
-  # headless Chromium via grover. No separate PDF layout code.
+  # WeasyPrint. WeasyPrint is a lightweight HTML/CSS → PDF engine (no headless
+  # browser), wrapped here as a CLI that reads HTML on stdin and writes the PDF
+  # on stdout. The HTML is fully self-contained (images are base64 data URIs),
+  # so no base URL or network access is needed.
   class Pdf < Base
     class RendererUnavailable < StandardError; end
 
@@ -21,13 +24,18 @@ module Exporters
 
     private
 
+    # Configurable command (ENV WEASYPRINT_CMD), e.g. "weasyprint" or
+    # "python3 -m weasyprint". "-" "-" = read HTML from stdin, write PDF to stdout.
     def render(html)
-      require "grover"
-      Grover.new(html, format: "A4", margin: { top: "1cm", bottom: "1cm", left: "1cm", right: "1cm" }).to_pdf
-    rescue LoadError, StandardError => e
-      # Chromium/puppeteer may be absent (e.g. minimal CI). Surface a clear error
-      # so ExportJob marks the export failed rather than crashing opaquely.
-      raise RendererUnavailable, "PDF rendering requires headless Chromium: #{e.message}"
+      cmd = Scribe.config.weasyprint_cmd
+      out, err, status = Open3.capture3(*cmd, "-", "-", stdin_data: html, binmode: true)
+      raise RendererUnavailable, "WeasyPrint failed: #{err}" unless status.success? && out.start_with?("%PDF")
+
+      out
+    rescue Errno::ENOENT => e
+      # Binary missing (e.g. minimal CI) — ExportJob marks the export failed and
+      # the smoke test skips, rather than crashing opaquely.
+      raise RendererUnavailable, "WeasyPrint not installed (set WEASYPRINT_CMD): #{e.message}"
     end
   end
 end
