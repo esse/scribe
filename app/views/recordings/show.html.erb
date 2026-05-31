@@ -6,10 +6,14 @@
   <p>Status: <span class="badge" data-status-target="badge"><%= @recording.status.humanize %></span></p>
 
   <ol class="pipeline">
-    <% %w[uploaded transcribing extracting_frames generating_manual complete].each do |stage| %>
+    <% %w[uploaded editing transcribing extracting_frames generating_manual complete].each do |stage| %>
       <li data-stage="<%= stage %>"><%= stage.humanize %></li>
     <% end %>
   </ol>
+
+  <% if @recording.editable? %>
+    <p><%= link_to "Edit / trim this recording →", edit_recording_path(@recording) %></p>
+  <% end %>
 
   <% if @recording.failed? %>
     <p class="flash alert">

@@ -10,6 +10,9 @@ Rails.application.routes.draw do
   resources :recordings, only: %i[index new create show destroy] do
     member do
       post :complete
+      get :edit
+      get :source_url
+      post :apply_edits
       post :retry
     end
   end

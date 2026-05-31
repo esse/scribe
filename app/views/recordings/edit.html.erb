@@ -1,0 +1,46 @@
+<% content_for :title, "Edit recording ##{@recording.id}" %>
+
+<section class="video-editor"
+         data-controller="video-editor"
+         data-video-editor-duration-value="<%= @recording.duration_seconds.to_f %>"
+         data-video-editor-apply-url-value="<%= apply_edits_recording_path(@recording) %>"
+         data-video-editor-source-url-value="<%= source_url_recording_path(@recording, format: :json) %>"
+         data-video-editor-refresh-url-value="<%= recording_path(@recording) %>">
+  <h1>Trim recording #<%= @recording.id %></h1>
+  <p class="muted">
+    Cut out the parts you don't want before we transcribe and build the manual.
+    Editing happens entirely in your browser — playback streams on demand, so even
+    multi-hour recordings stay snappy. Nothing is re-uploaded; we apply the cut on
+    our side when you're done.
+  </p>
+
+  <video data-video-editor-target="video"
+         src="<%= Storage.signed_url(@recording.storage_key) %>"
+         controls preload="metadata" playsinline></video>
+
+  <div class="timeline" data-video-editor-target="track" data-action="click->video-editor#seek">
+    <div class="timeline-segments" data-video-editor-target="segments"></div>
+    <div class="timeline-playhead" data-video-editor-target="playhead"></div>
+  </div>
+
+  <div class="controls">
+    <button type="button" data-action="video-editor#splitAtPlayhead">Split at playhead</button>
+    <button type="button" data-action="video-editor#reset">Reset</button>
+    <span class="muted small">Kept: <strong data-video-editor-target="totalKept">0:00</strong></span>
+  </div>
+
+  <ol class="segment-list" data-video-editor-target="list"></ol>
+
+  <div class="controls">
+    <button type="button" class="primary" data-video-editor-target="apply" data-action="video-editor#apply">
+      Apply edits &amp; generate manual
+    </button>
+    <button type="button" class="linkbtn" data-action="video-editor#useFullRecording">
+      Use the full recording
+    </button>
+  </div>
+
+  <p class="status" data-video-editor-target="status" aria-live="polite">
+    Drag the edges of a segment to trim. Split to cut out a middle section.
+  </p>
+</section>

@@ -5,10 +5,12 @@
 module RecordingPurge
   module_function
 
-  # Delete the raw source video and mark it purged. Idempotent.
+  # Delete the raw source video (and the trimmed copy, if any) and mark it
+  # purged. Idempotent.
   def purge_raw_video!(recording)
-    if recording.storage_key.present? && recording.raw_video_purged_at.nil?
-      Storage.delete(recording.storage_key)
+    if recording.raw_video_purged_at.nil?
+      Storage.delete(recording.storage_key) if recording.storage_key.present?
+      Storage.delete(recording.edited_storage_key) if recording.edited_storage_key.present?
     end
     recording.update!(raw_video_purged_at: Time.current)
   end
@@ -26,6 +28,7 @@ module RecordingPurge
   def storage_keys(recording)
     keys = []
     keys << recording.storage_key if recording.storage_key.present?
+    keys << recording.edited_storage_key if recording.edited_storage_key.present?
     recording.frames.each do |frame|
       keys << frame.storage_key
       keys << frame.thumbnail_storage_key

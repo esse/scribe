@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_31_090002) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_31_100001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -101,6 +101,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_31_090002) do
   create_table "recordings", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.float "duration_seconds"
+    t.jsonb "edit_segments"
+    t.string "edited_storage_key"
     t.string "error_message"
     t.integer "failed_stage"
     t.string "mime"

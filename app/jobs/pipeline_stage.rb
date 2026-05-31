@@ -75,11 +75,14 @@ module PipelineStage
     Sentry.capture_exception(error, extra: context) if defined?(Sentry) && Sentry.initialized?
   end
 
-  # Download the recording's source video to a temp path for ffmpeg work.
-  def with_source_video(recording)
+  # Download a recording's video to a temp path for ffmpeg work. Defaults to the
+  # video the pipeline should process (the trimmed output once edits are applied,
+  # otherwise the original upload); pass an explicit key to target a specific
+  # object (e.g. the editor reads the pristine source).
+  def with_source_video(recording, key: recording.processing_storage_key)
     Dir.mktmpdir("scribe") do |dir|
-      path = File.join(dir, "input#{File.extname(recording.storage_key.to_s).presence || '.webm'}")
-      Storage.download_to(recording.storage_key, path)
+      path = File.join(dir, "input#{File.extname(key.to_s).presence || '.webm'}")
+      Storage.download_to(key, path)
       yield path, dir
     end
   end

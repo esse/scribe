@@ -13,16 +13,20 @@ class RecordingsFlowTest < ActionDispatch::IntegrationTest
     stage_tus_upload(@tus_id)
   end
 
-  test "complete reserves credits and enqueues the pipeline when funded" do
+  test "complete reserves credits and hands off to the editor (pipeline starts on apply)" do
     Credits::Ledger.grant_purchase!(user: @user, credits: 50, stripe_session_id: "cs_funded")
 
-    assert_enqueued_with(job: TranscribeJob) do
+    # The pipeline no longer starts at /complete — the editor kicks it off on apply.
+    assert_no_enqueued_jobs(only: TranscribeJob) do
       post complete_recording_path(@recording), params: { tus_upload_id: @tus_id }
     end
     assert_response :success
 
+    assert_equal edit_recording_path(@recording), JSON.parse(response.body)["edit_url"]
+
     @recording.reload
     assert @recording.uploaded?
+    assert @recording.editable?
     assert @recording.storage_key.present?
     assert_operator @recording.duration_seconds.to_f, :>, 0
     assert @recording.credit_hold.present?

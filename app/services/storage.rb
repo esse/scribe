@@ -45,6 +45,13 @@ module Storage
     adapter.exists?(key)
   end
 
+  # Local filesystem path for a key, or nil when the backing store isn't disk.
+  # Lets the blob endpoint stream large files (with HTTP Range support) instead
+  # of buffering them in memory.
+  def local_path(key)
+    adapter.respond_to?(:local_path) ? adapter.local_path(key) : nil
+  end
+
   # Short-lived signed download URL (SPEC §5, §14).
   def signed_url(key, expires_in: Scribe.config.signed_url_ttl, disposition: nil, filename: nil)
     adapter.signed_url(key, expires_in:, disposition:, filename:)
@@ -80,6 +87,11 @@ module Storage
     end
 
     def exists?(key) = File.exist?(path_for(key))
+
+    def local_path(key)
+      path = path_for(key)
+      File.exist?(path) ? path.to_s : nil
+    end
 
     def signed_url(key, expires_in:, disposition:, filename:)
       expires_at = Time.current.to_i + expires_in.to_i
