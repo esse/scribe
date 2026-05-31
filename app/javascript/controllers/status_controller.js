@@ -34,7 +34,7 @@ export default class extends Controller {
   }
 
   mark(status) {
-    const order = ["uploaded", "transcribing", "extracting_frames", "generating_manual", "complete"]
+    const order = ["uploaded", "editing", "transcribing", "extracting_frames", "generating_manual", "complete"]
     const idx = order.indexOf(status)
     this.element.querySelectorAll("[data-stage]").forEach((li) => {
       li.classList.toggle("done", order.indexOf(li.dataset.stage) <= idx && idx >= 0)

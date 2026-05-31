@@ -63,8 +63,8 @@ export default class extends Controller {
       const result = await this.postJSON(`/recordings/${this.recordingId}/complete`, {
         tus_upload_id: this.upload.url
       })
-      this.setStatus(`Uploaded. Processing started (${result.estimated_credits} credits reserved).`)
-      window.location.href = `/recordings/${this.recordingId}`
+      this.setStatus(`Uploaded (${result.estimated_credits} credits reserved). Opening editor…`)
+      window.location.href = result.edit_url || `/recordings/${this.recordingId}`
     } catch (err) {
       this.setStatus(`Upload finalize failed: ${err.message}`)
     }
