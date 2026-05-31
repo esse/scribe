@@ -57,7 +57,7 @@ the title/summary/step prose — emitted through a forced tool schema
 | Object storage | S3-compatible behind `Storage`; disk adapter for dev/test           |
 | Resumable upload | tus (`tus-server` mounted at `/files`, `tus-js-client` in browser) |
 | Media          | system `ffmpeg`/`ffprobe`                                           |
-| Transcription  | provider-abstracted (`stub` / Deepgram / faster-whisper)            |
+| Transcription  | provider-abstracted: Deepgram / OpenAI (hosted) / faster-whisper / `stub` |
 | AI             | Anthropic Messages API (plain HTTP client) + offline fake           |
 | PDF            | HTML exporter rendered with **WeasyPrint** (CLI, no browser)        |
 | Auth           | Rails 8 built-in authentication (session-based, per-user)           |
@@ -101,10 +101,12 @@ demo end-to-end with zero keys or spend. To exercise the real services:
 2. In `.env`, set `STORAGE_ADAPTER=s3` (MinIO creds are pre-filled) so uploads,
    frames and exports go through signed URLs.
 3. Set `ANTHROPIC_API_KEY` for manual generation.
-4. Choose a transcription provider:
-   - Hosted (easiest): `TRANSCRIPTION_PROVIDER=deepgram` + `DEEPGRAM_API_KEY`.
-   - Local (no key): `TRANSCRIPTION_PROVIDER=whisper` + `WHISPER_BIN` pointing at
-     a faster-whisper / whisper-ctranslate2 CLI that emits JSON segments.
+4. Choose a real transcription provider (required for actual transcripts):
+   - `TRANSCRIPTION_PROVIDER=deepgram` + `DEEPGRAM_API_KEY`, or
+   - `TRANSCRIPTION_PROVIDER=openai` + `OPENAI_API_KEY` (model via
+     `OPENAI_TRANSCRIBE_MODEL`, default `whisper-1`), or
+   - `TRANSCRIPTION_PROVIDER=whisper` + `WHISPER_BIN` pointing at a local
+     faster-whisper / whisper-ctranslate2 CLI that emits JSON segments.
 5. `bin/dev`, open http://localhost:3000, sign up, buy/seed credits, record.
 
 MinIO console: http://localhost:9001 (`minioadmin` / `minioadmin`).
@@ -133,7 +135,9 @@ Claude Code web sessions.
   metering (`Meter`). Balance is always derived: `SUM(amount) WHERE state IN
   ('settled','pending')`. All credit mutations go through here.
 - `app/services/transcription/` — `Base.build` selects the provider; `Stub` is
-  the offline default; `Deepgram` and `Whisper` are real implementations.
+  the offline default; `Deepgram`, `Openai` (hosted, real STT) and `Whisper`
+  (local CLI) are real implementations. Each separates the HTTP call (`#fetch`)
+  from response mapping (`#parse`) so mapping is unit-tested offline.
 - `app/services/media/` — `Probe` (ffprobe), `AudioExtractor`, `FrameExtractor`
   (scene detect + periodic fallback + on-demand seeks + thumbnails).
 - `app/services/manual_generation/` — `ToolSchema` (forced output), `Generator`
@@ -198,6 +202,8 @@ in code so it's greppable. Confirm before hardening.
   WeasyPrint, registry behaviour.
 - `test/services/storage_s3_test.rb` — S3/MinIO adapter (stubbed): put/get/
   delete, presigned-URL shape, SSE toggle.
+- `test/services/transcription_test.rb` — provider selection + Deepgram/OpenAI
+  response mapping (canned payloads) + missing-key guard.
 - `test/integration/stripe_webhook_test.rb` — webhook idempotency (replay → one
   grant).
 - `test/integration/pipeline_test.rb` — end-to-end with a real short ffmpeg

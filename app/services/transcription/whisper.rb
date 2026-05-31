@@ -11,7 +11,7 @@ module Transcription
 
     def transcribe(audio_path:)
       out, err, status = Open3.capture3(@bin, "--output_format", "json", "--language", "auto", audio_path.to_s)
-      raise "whisper failed: #{err}" unless status.success?
+      raise TranscriptionError, "whisper failed: #{err}" unless status.success?
 
       data = JSON.parse(out)
       segments = (data["segments"] || []).map do |s|

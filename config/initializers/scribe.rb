@@ -21,6 +21,8 @@ module Scribe
       # TODO(decision): confirm hosted (Deepgram/AssemblyAI) vs self-hosted faster-whisper.
       c.transcription_provider = ENV.fetch("TRANSCRIPTION_PROVIDER", "stub")
       c.deepgram_api_key       = ENV["DEEPGRAM_API_KEY"]
+      c.openai_api_key         = ENV["OPENAI_API_KEY"]
+      c.openai_transcribe_model = ENV.fetch("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
 
       # --- Frames (SPEC §8.4) ---
       c.default_scene_threshold = ENV.fetch("SCENE_THRESHOLD", 0.4).to_f

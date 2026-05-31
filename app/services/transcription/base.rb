@@ -9,13 +9,17 @@ module Transcription
       raise NotImplementedError, "#{self.class} must implement #transcribe"
     end
 
-    # Select the configured provider (SPEC §9.3). Defaults to the offline stub so
-    # dev/CI never spend on external STT.
-    def self.build
-      case Scribe.config.transcription_provider.to_s
+    # Select the configured provider (SPEC §9.3). Real hosted providers (Deepgram,
+    # OpenAI) and a local CLI (whisper) are available; defaults to the offline stub
+    # so dev/CI never spend on external STT. An unknown name is a hard error rather
+    # than a silent fallback.
+    def self.build(name = Scribe.config.transcription_provider)
+      case name.to_s
       when "deepgram" then Transcription::Deepgram.new
+      when "openai"   then Transcription::Openai.new
       when "whisper"  then Transcription::Whisper.new
-      else Transcription::Stub.new
+      when "stub", "" then Transcription::Stub.new
+      else raise ConfigurationError, "Unknown TRANSCRIPTION_PROVIDER: #{name.inspect}"
       end
     end
   end

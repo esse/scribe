@@ -30,12 +30,8 @@ module Media
       pattern = File.join(out_dir, "scene_%05d.png")
       # Coerce to a literal float; values reach ffmpeg as separate argv (no shell).
       filter = format("select='gt(scene,%.4f)',showinfo", threshold.to_f)
-      _out, err, status = Open3.capture3(
-        Media.ffmpeg_bin, "-y",
-        "-i", input_path.to_s,
-        "-vf", filter,
-        "-vsync", "vfr",
-        pattern
+      _out, err, status = run_ffmpeg(
+        "-y", "-i", input_path.to_s, "-vf", filter, "-vsync", "vfr", pattern
       )
       return [] unless status.success?
 
@@ -57,12 +53,8 @@ module Media
       timestamp_ms = timestamp_ms.to_i
       out_path = File.join(out_dir, "#{prefix}_#{timestamp_ms}.png")
       seconds = format("%.3f", timestamp_ms / 1000.0)
-      _out, err, status = Open3.capture3(
-        Media.ffmpeg_bin, "-y",
-        "-ss", seconds,
-        "-i", input_path.to_s,
-        "-frames:v", "1",
-        out_path
+      _out, err, status = run_ffmpeg(
+        "-y", "-ss", seconds, "-i", input_path.to_s, "-frames:v", "1", out_path
       )
       raise "ffmpeg frame extraction failed at #{timestamp_ms}ms: #{err}" unless status.success? && File.exist?(out_path)
 
@@ -72,15 +64,24 @@ module Media
     # Token-cost-control thumbnail for sending to Claude (SPEC §8.4, §9.4).
     def thumbnail(src_path:, out_path:, max_edge: Scribe.config.thumbnail_max_edge)
       scale = format("scale='min(%d,iw)':'-1':force_original_aspect_ratio=decrease", max_edge.to_i)
-      _out, err, status = Open3.capture3(
-        Media.ffmpeg_bin, "-y",
-        "-i", src_path.to_s,
-        "-vf", scale,
-        out_path.to_s
-      )
+      _out, err, status = run_ffmpeg("-y", "-i", src_path.to_s, "-vf", scale, out_path.to_s)
       raise "ffmpeg thumbnail failed: #{err}" unless status.success?
 
       out_path
+    end
+
+    # Invoke ffmpeg, retrying once on a transient failure. Under heavy load
+    # (e.g. many concurrent encodes) ffmpeg can occasionally be starved/killed;
+    # a single retry makes extraction robust in production and CI alike.
+    def run_ffmpeg(*args, attempts: 3)
+      out = err = status = nil
+      attempts.times do |i|
+        out, err, status = Open3.capture3(Media.ffmpeg_bin, *args)
+        return [ out, err, status ] if status.success?
+
+        sleep(0.2 * (i + 1)) if i < attempts - 1
+      end
+      [ out, err, status ]
     end
 
     # Pixel dimensions of a still, for the frames row.
