@@ -16,9 +16,20 @@
       Failed at <strong><%= @recording.failed_stage&.humanize %></strong>:
       <%= @recording.error_message %>
     </p>
+    <%= button_to "Retry this stage", retry_recording_path(@recording), method: :post %>
+  <% end %>
+
+  <% if @recording.raw_video_purged_at? %>
+    <p class="muted small">Raw video purged on <%= @recording.raw_video_purged_at.to_date %> (retention). The manual is kept.</p>
   <% end %>
 
   <p data-status-target="link" hidden>
     <a data-status-target="manualLink" href="#">View generated manual →</a>
+  </p>
+
+  <p class="danger-zone">
+    <%= button_to "Delete recording", recording_path(@recording), method: :delete,
+          class: "linkbtn danger",
+          form: { data: { turbo_confirm: "Delete this recording, its manual, and all files? This can't be undone." } } %>
   </p>
 </section>

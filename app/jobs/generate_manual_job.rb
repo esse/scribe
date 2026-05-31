@@ -26,10 +26,22 @@ class GenerateManualJob < ApplicationJob
 
       recording.complete!
       Credits::Ledger.settle!(recording.credit_hold)
+      log_usage(recording, result)
     end
   end
 
   private
+
+  # Cost/usage logging for future token-based metering (SPEC §9.4, §13.4).
+  def log_usage(recording, result)
+    Rails.logger.info(
+      tag: "manual_usage",
+      recording_id: recording.id,
+      model: result.model,
+      input_tokens: result.usage[:input],
+      output_tokens: result.usage[:output]
+    )
+  end
 
   def persist_manual(recording, manual, result, video_path, work_dir)
     Manual.transaction do
@@ -37,6 +49,8 @@ class GenerateManualJob < ApplicationJob
         title: result.title,
         summary: result.summary,
         model: result.model,
+        input_tokens: result.usage[:input],
+        output_tokens: result.usage[:output],
         status: :ready,
         generated_at: Time.current
       )

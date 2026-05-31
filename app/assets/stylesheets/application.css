@@ -85,3 +85,6 @@ table.list th, table.list td { text-align: left; padding: 0.5rem; border-bottom:
 .packs { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem; }
 .pack { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; min-width: 180px; }
 .toggle { display: block; margin: 1rem 0; }
+
+.danger-zone { margin-top: 2rem; }
+.linkbtn.danger { color: var(--bad); text-decoration: underline; }
