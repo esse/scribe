@@ -100,7 +100,7 @@ response shape, so the pipeline doesn't care which one ran.
 | Storage          | Local disk under the data dir (served via short-lived signed URLs)      |
 | Resumable upload | tus (`tus-server` at `/files`, `tus-js-client` in the browser)          |
 | Media            | system `ffmpeg`/`ffprobe`                                               |
-| Transcription    | provider-abstracted: **local Whisper** (default) / Deepgram / OpenAI / `stub` |
+| Transcription    | provider-abstracted: **local Whisper** (bundled in the image) / Deepgram / OpenAI / `stub` |
 | LLM              | **Anthropic** (your key) **or local llama** (OpenAI-compatible) + offline fake |
 | PDF              | HTML exporter rendered with **WeasyPrint** (CLI, no browser)            |
 | Accounts/billing | none — single implicit local user                                       |
@@ -116,21 +116,28 @@ reads automatically). `SECRET_KEY_BASE` is always required in the container.
 ### 1. Anthropic (your key) + local Whisper — recommended
 
 Best quality. The manual is written by Claude using your own API key; audio is
-transcribed locally so it never leaves the machine.
+transcribed **locally** with Whisper so it never leaves the machine. This is the
+default — just provide your key:
 
 ```ini
 # .env
 SECRET_KEY_BASE=<openssl rand -hex 32>
 ANTHROPIC_API_KEY=sk-ant-...
-# Transcription defaults to local whisper; ensure WHISPER_BIN resolves in-container.
-# The image ships ffmpeg + weasyprint; install a whisper CLI in your own image
-# layer if you want local STT, or use a hosted option below.
-TRANSCRIPTION_PROVIDER=whisper
 ```
 
 ```bash
 docker compose up --build      # → http://localhost:3000
 ```
+
+The image bundles `faster-whisper` and pre-downloads the `base` model at build
+time, so local transcription works out of the box and fully offline. Pick a
+different size with a build arg (e.g. better accuracy):
+
+```bash
+docker compose build --build-arg WHISPER_MODEL=small
+```
+
+or at runtime via `WHISPER_MODEL` (downloaded on first use if not pre-baked).
 
 ### 2. Fully local — a llama model + Whisper (nothing leaves the machine)
 
@@ -285,8 +292,9 @@ Open http://localhost:3000. `.env` is loaded automatically in development (via
 
 Install the system tools — macOS: `brew install ffmpeg weasyprint`;
 Ubuntu: `sudo apt-get install -y ffmpeg weasyprint`. For local transcription,
-install a faster-whisper / whisper-ctranslate2 CLI that emits JSON segments and
-set `WHISPER_BIN` (default `faster-whisper`).
+`pip install faster-whisper` and point `WHISPER_BIN` at the bundled wrapper:
+`WHISPER_BIN=script/faster-whisper` (it emits the JSON the pipeline expects). The
+Docker image does this for you.
 
 ### Using an existing recording
 
@@ -324,7 +332,9 @@ All config comes from ENV (see `.env.example`). Highlights:
 | `LLM_MODEL` | `llama3.2-vision` | Local model id (vision-capable) |
 | `LLM_API_KEY` | — | Optional bearer token for the local server |
 | `TRANSCRIPTION_PROVIDER` | `whisper` (`stub` in tests) | `whisper` \| `deepgram` \| `openai` \| `stub` |
-| `WHISPER_BIN` | `faster-whisper` | Local STT CLI emitting JSON segments |
+| `WHISPER_BIN` | `faster-whisper` (`/rails/script/faster-whisper` in Docker) | Local STT CLI emitting JSON segments |
+| `WHISPER_MODEL` | `base` | faster-whisper model size (`tiny`/`base`/`small`/`medium`/`large-v3`) |
+| `WHISPER_MODEL_DIR` | — (`/opt/whisper-models` in Docker) | Where Whisper models are cached |
 | `DEEPGRAM_API_KEY` / `OPENAI_API_KEY` | — | Hosted STT keys |
 | `WRITE_RESULT_FILES` | `true` | Write manual.json/md/html/pdf to disk |
 | `RAW_VIDEO_RETENTION_DAYS` | `0` (keep forever) | Auto-purge raw videos older than N days |

@@ -5,7 +5,7 @@ module Transcription
   #
   # TODO(decision): confirm hosted (Deepgram) vs self-hosted faster-whisper.
   class Whisper < Base
-    def initialize(bin: ENV.fetch("WHISPER_BIN", "faster-whisper"))
+    def initialize(bin: Scribe.config.whisper_bin)
       @bin = bin
     end
 

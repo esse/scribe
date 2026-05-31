@@ -17,18 +17,15 @@ services:
       - "3000:80"
     volumes:
       - ./data:/data
+    # Inject your .env into the container. Only the keys you actually set override
+    # the image's local-first defaults (whisper STT, the base model, etc.), so an
+    # unset variable never clobbers a default with an empty string.
+    env_file:
+      - .env
     environment:
       # Required so signed URLs survive restarts. Generate once with
       # `openssl rand -hex 32` and keep it in .env.
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE in .env}
-      # Your own keys / model selection (see .env.example).
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      LLM_PROVIDER: ${LLM_PROVIDER:-}
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
-      LLM_MODEL: ${LLM_MODEL:-}
-      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-}
-      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     # Reach a model server (Ollama, llama.cpp) running on the host as
     # host.docker.internal on Linux too.
     extra_hosts:
