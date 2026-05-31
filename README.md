@@ -59,7 +59,7 @@ the title/summary/step prose — emitted through a forced tool schema
 | Media          | system `ffmpeg`/`ffprobe`                                           |
 | Transcription  | provider-abstracted (`stub` / Deepgram / faster-whisper)            |
 | AI             | Anthropic Messages API (plain HTTP client) + offline fake           |
-| PDF            | HTML exporter rendered with headless Chromium (`grover`)            |
+| PDF            | HTML exporter rendered with **WeasyPrint** (CLI, no browser)        |
 | Auth           | Rails 8 built-in authentication (session-based, per-user)           |
 | Billing        | Stripe Checkout (one-time) + append-only credit ledger             |
 | Observability  | Sentry (server + jobs), wired from milestone 0                      |
@@ -68,23 +68,46 @@ the title/summary/step prose — emitted through a forced tool schema
 
 ## Getting started (local dev)
 
-Requires Ruby (see `.ruby-version`), PostgreSQL 16, and `ffmpeg`.
+System deps: Ruby (see `.ruby-version`), `ffmpeg`, and `weasyprint` (PDF export).
+Postgres and object storage (MinIO) come from `docker compose`.
 
 ```bash
+docker compose up -d          # Postgres + MinIO (+ auto-creates the bucket)
 bundle install
-cp .env.example .env          # adjust DB creds / keys as needed
+cp .env.example .env          # fill in keys (see "full flow" below)
 
 bin/rails db:prepare          # create + migrate (primary + queue DBs)
 bin/rails db:seed             # seed credit packs (idempotent)
 
-bin/dev                       # command-up: starts the web server AND the
-                              # Solid Queue worker (pipeline + recurring jobs)
+bin/dev                       # command-up: web server + Solid Queue worker
 ```
 
 `bin/dev` is the single command-up for the dev environment — it runs Puma and
 the Solid Queue worker together (via overmind/foreman if installed, otherwise
 directly) and tears both down on Ctrl-C. Development uses a dedicated
-`scribe_development_queue` database for jobs, matching production.
+`scribe_development_queue` database for jobs, matching production. `.env` is
+loaded automatically in development (via `dotenv-rails`); it is **not** loaded in
+test, so the suite stays offline.
+
+Install the system tools (macOS): `brew install ffmpeg weasyprint`.
+Ubuntu: `sudo apt-get install -y ffmpeg weasyprint`.
+
+### Testing the whole flow locally (real transcription + manual)
+
+The pipeline runs **offline by default** (stub STT + fake Claude), so you can
+demo end-to-end with zero keys or spend. To exercise the real services:
+
+1. `docker compose up -d` — Postgres + MinIO with the `scribe` bucket.
+2. In `.env`, set `STORAGE_ADAPTER=s3` (MinIO creds are pre-filled) so uploads,
+   frames and exports go through signed URLs.
+3. Set `ANTHROPIC_API_KEY` for manual generation.
+4. Choose a transcription provider:
+   - Hosted (easiest): `TRANSCRIPTION_PROVIDER=deepgram` + `DEEPGRAM_API_KEY`.
+   - Local (no key): `TRANSCRIPTION_PROVIDER=whisper` + `WHISPER_BIN` pointing at
+     a faster-whisper / whisper-ctranslate2 CLI that emits JSON segments.
+5. `bin/dev`, open http://localhost:3000, sign up, buy/seed credits, record.
+
+MinIO console: http://localhost:9001 (`minioadmin` / `minioadmin`).
 
 Then open http://localhost:3000, sign up, and record. With no
 `ANTHROPIC_API_KEY` and `TRANSCRIPTION_PROVIDER=stub`, the full pipeline runs
@@ -163,7 +186,7 @@ in code so it's greppable. Confirm before hardening.
 | 2 | Record + resumable upload (Stimulus recorder, tus) | ✅ backend + recorder; playback via signed URLs |
 | 3 | Pipeline + transcription (state machine, audio extract, provider) | ✅ |
 | 4 | Frames + manual (scene frames, Claude alignment, review/edit UI) | ✅ |
-| 5 | Exports (registry + Markdown/HTML/PDF, signed download) | ✅ (PDF needs Chromium) |
+| 5 | Exports (registry + Markdown/HTML/PDF, signed download) | ✅ (PDF via WeasyPrint) |
 | 6 | Credits + Stripe (ledger, packs, Checkout, webhook, 402 gating) | ✅ |
 | 7 | Hardening (retries, failure UI, delete/retention, usage logging) | ✅ — automatic transient-error retries + per-stage manual retry, failure/retry + delete UI, `RecordingPurge` + daily retention job, token-usage logging |
 
@@ -171,8 +194,10 @@ in code so it's greppable. Confirm before hardening.
 
 - `test/models/credit_transaction_test.rb` — ledger math, hold→settle/void, and
   no double-spend under concurrency.
-- `test/services/exporters_test.rb` — golden Markdown/HTML, PDF smoke (skips
-  without Chromium), registry behaviour.
+- `test/services/exporters_test.rb` — golden Markdown/HTML, PDF render via
+  WeasyPrint, registry behaviour.
+- `test/services/storage_s3_test.rb` — S3/MinIO adapter (stubbed): put/get/
+  delete, presigned-URL shape, SSE toggle.
 - `test/integration/stripe_webhook_test.rb` — webhook idempotency (replay → one
   grant).
 - `test/integration/pipeline_test.rb` — end-to-end with a real short ffmpeg

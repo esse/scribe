@@ -93,6 +93,12 @@ module Storage
 
   # --- S3 adapter ---------------------------------------------------------
   class S3Adapter
+    # client/bucket overrides exist so tests can inject a stubbed AWS client.
+    def initialize(client: nil, bucket: nil)
+      @client = client
+      @bucket = bucket
+    end
+
     def client
       @client ||= begin
         require "aws-sdk-s3"
@@ -110,12 +116,16 @@ module Storage
       end
     end
 
-    def bucket = Scribe.config.storage_bucket
+    def bucket = @bucket || Scribe.config.storage_bucket
 
     def put(key, io_or_path, content_type:)
       body = io_or_path.respond_to?(:read) ? io_or_path : File.open(io_or_path, "rb")
-      # Encrypt at rest (SPEC §14).
-      client.put_object(bucket:, key:, body:, content_type:, server_side_encryption: "AES256")
+      params = { bucket:, key:, body:, content_type: }
+      # Encrypt at rest in real S3/R2 (SPEC §14). Disable for MinIO dev where
+      # SSE-S3 needs extra setup: set S3_SSE="" to skip.
+      sse = Scribe.config.s3_sse
+      params[:server_side_encryption] = sse if sse.present?
+      client.put_object(**params)
       key
     ensure
       body.close if body && !io_or_path.respond_to?(:read)

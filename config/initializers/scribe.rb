@@ -44,6 +44,8 @@ module Scribe
       c.s3_region         = ENV.fetch("S3_REGION", "auto")
       c.s3_access_key_id  = ENV["S3_ACCESS_KEY_ID"]
       c.s3_secret_access_key = ENV["S3_SECRET_ACCESS_KEY"]
+      # Server-side encryption header for puts ("AES256" for S3/R2, blank for MinIO dev).
+      c.s3_sse            = ENV.fetch("S3_SSE", "AES256")
       c.signed_url_ttl    = ENV.fetch("SIGNED_URL_TTL", 900).to_i # 15 min (SPEC §5, §14)
 
       # --- Stripe (SPEC §12) ---
@@ -56,6 +58,8 @@ module Scribe
       # DECISION (export billing): default built-in exports cost 0 credits; per-format
       # cost is configurable so premium formats can be charged later.
       c.export_credit_costs = { "markdown" => 0, "html" => 0, "pdf" => 0 }
+      # PDF rendering command (WeasyPrint). Split so "python3 -m weasyprint" works.
+      c.weasyprint_cmd = ENV.fetch("WEASYPRINT_CMD", "weasyprint").split
     end
   end
 end

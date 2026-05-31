@@ -30,8 +30,8 @@ gem "stripe", "~> 13.0"
 # Observability, wired from milestone 0. SPEC §4, §15.
 gem "sentry-ruby"
 gem "sentry-rails"
-# PDF export by rendering the HTML exporter through headless Chromium. SPEC §11.2.
-gem "grover", require: false
+# PDF export is rendered by the WeasyPrint CLI (HTML/CSS → PDF), invoked from
+# Exporters::Pdf — no Ruby gem required. SPEC §11.2.
 
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem "tzinfo-data", platforms: %i[ windows jruby ]
@@ -67,6 +67,10 @@ end
 group :development do
   # Use console on exceptions pages [https://github.com/rails/web-console]
   gem "web-console"
+
+  # Load .env for local secrets (AI/STT/Stripe keys). Development-only on purpose
+  # so the test suite stays offline and deterministic (SPEC §15).
+  gem "dotenv-rails"
 end
 
 group :test do

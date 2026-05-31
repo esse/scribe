@@ -1,0 +1,59 @@
+# Local dev dependencies for testing the full flow (SPEC §4, §5).
+# The Rails app itself runs on the host via `bin/dev`; this brings up the
+# backing services it talks to.
+#
+#   docker compose up -d        # start Postgres + MinIO (+ create the bucket)
+#   bin/rails db:prepare && bin/dev
+#
+# MinIO console: http://localhost:9001  (minioadmin / minioadmin)
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: scribe_development
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: create the bucket the app expects (STORAGE_BUCKET=scribe).
+  createbuckets:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      until (mc alias set local http://minio:9000 minioadmin minioadmin) do echo 'waiting for minio'; sleep 1; done;
+      mc mb --ignore-existing local/scribe;
+      mc anonymous set none local/scribe;
+      echo 'bucket ready';
+      "
+
+volumes:
+  pg-data:
+  minio-data:
