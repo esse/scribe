@@ -74,11 +74,17 @@ Requires Ruby (see `.ruby-version`), PostgreSQL 16, and `ffmpeg`.
 bundle install
 cp .env.example .env          # adjust DB creds / keys as needed
 
-bin/rails db:prepare          # create + migrate + seed
+bin/rails db:prepare          # create + migrate (primary + queue DBs)
 bin/rails db:seed             # seed credit packs (idempotent)
 
-bin/dev                       # or: bin/rails server + bin/jobs
+bin/dev                       # command-up: starts the web server AND the
+                              # Solid Queue worker (pipeline + recurring jobs)
 ```
+
+`bin/dev` is the single command-up for the dev environment — it runs Puma and
+the Solid Queue worker together (via overmind/foreman if installed, otherwise
+directly) and tears both down on Ctrl-C. Development uses a dedicated
+`scribe_development_queue` database for jobs, matching production.
 
 Then open http://localhost:3000, sign up, and record. With no
 `ANTHROPIC_API_KEY` and `TRANSCRIPTION_PROVIDER=stub`, the full pipeline runs
@@ -113,7 +119,14 @@ Claude Code web sessions.
 - `app/services/exporters/` — `Registry` + `Markdown`/`Html`/`Pdf`. **Adding a
   format = one subclass + `Registry.register`.**
 - `app/jobs/` — `TranscribeJob → ExtractFramesJob → GenerateManualJob`, plus
-  `ExportJob`. Shared failure handling in `PipelineStage`.
+  `ExportJob` and `PurgeExpiredRecordingsJob` (retention). Shared retry/failure
+  handling in `PipelineStage`: transient errors (network/timeout) auto-retry with
+  backoff; permanent or exhausted failures record `failed_stage` and void the
+  hold. A failed recording can be re-run from its stage via `POST
+  /recordings/:id/retry`.
+- `app/services/recording_purge.rb` — delete a recording's stored objects + rows
+  (`destroy!`) and retention purge of the raw video while keeping the manual
+  (`purge_raw_video!`).
 
 ---
 
@@ -134,8 +147,9 @@ in code so it's greppable. Confirm before hardening.
   *(open)*
 - **Export billing:** built-in exports cost **0 credits**; per-format cost is
   configurable (`Scribe.config.export_credit_costs`). *(default)*
-- **Retention:** raw video kept **30 days** (`RAW_VIDEO_RETENTION_DAYS`); manuals
-  persist. *(open — purge job not yet built; see milestone 7)*
+- **Retention:** raw video kept **30 days** (`RAW_VIDEO_RETENTION_DAYS`), then
+  auto-purged by `PurgeExpiredRecordingsJob` (daily, see `config/recurring.yml`);
+  manuals persist. *(window open for confirmation)*
 - **Metering model:** flat per-minute now; `settle!(actual_amount:)` already
   accepts token-based actuals without a schema change. *(default)*
 
@@ -151,7 +165,7 @@ in code so it's greppable. Confirm before hardening.
 | 4 | Frames + manual (scene frames, Claude alignment, review/edit UI) | ✅ |
 | 5 | Exports (registry + Markdown/HTML/PDF, signed download) | ✅ (PDF needs Chromium) |
 | 6 | Credits + Stripe (ledger, packs, Checkout, webhook, 402 gating) | ✅ |
-| 7 | Hardening (retries UI, delete/retention purge, usage logging) | ◻︎ partial — per-stage failure recording + retryable jobs done; retention purge job and richer failure UI pending |
+| 7 | Hardening (retries, failure UI, delete/retention, usage logging) | ✅ — automatic transient-error retries + per-stage manual retry, failure/retry + delete UI, `RecordingPurge` + daily retention job, token-usage logging |
 
 ### Tests (SPEC §15)
 

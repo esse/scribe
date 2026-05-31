@@ -7,9 +7,10 @@ Rails.application.routes.draw do
   resource :registration, only: %i[new create]
 
   # --- Recordings / upload (SPEC §7, §13) ---
-  resources :recordings, only: %i[index new create show] do
+  resources :recordings, only: %i[index new create show destroy] do
     member do
       post :complete
+      post :retry
     end
   end
 

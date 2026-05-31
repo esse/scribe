@@ -1,2 +1,35 @@
-#!/usr/bin/env ruby
-exec "./bin/rails", "server", *ARGV
+#!/usr/bin/env bash
+# Brings up the full dev environment with one command: the Puma web server and
+# the Solid Queue worker (which runs the pipeline jobs and recurring tasks).
+#
+#   bin/dev
+#
+# Uses overmind/foreman if installed; otherwise runs both processes directly and
+# tears them down together on Ctrl-C.
+set -euo pipefail
+
+# Make gem-installed binaries (rails, etc.) available.
+if command -v ruby >/dev/null 2>&1; then
+  export PATH="$PATH:$(ruby -e 'print Gem.bindir' 2>/dev/null)"
+fi
+
+if command -v overmind >/dev/null 2>&1; then
+  exec overmind start -f Procfile.dev "$@"
+elif command -v foreman >/dev/null 2>&1; then
+  exec foreman start -f Procfile.dev "$@"
+fi
+
+echo "==> Starting web + jobs (install foreman or overmind for nicer output)"
+pids=()
+cleanup() {
+  trap - INT TERM EXIT
+  kill "${pids[@]}" 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+trap cleanup INT TERM EXIT
+
+bin/rails server -p "${PORT:-3000}" & pids+=($!)
+bin/jobs & pids+=($!)
+
+# Exit (and tear everything down) as soon as either process stops.
+wait -n

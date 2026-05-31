@@ -31,6 +31,11 @@ Rails.application.configure do
   # Store uploaded files on the local file system (see config/storage.yml for options).
   config.active_storage.service = :local
 
+  # Run the pipeline jobs through Solid Queue (its own database) so `bin/dev`
+  # processes recordings just like production (SPEC §4, §16.1).
+  config.active_job.queue_adapter = :solid_queue
+  config.solid_queue.connects_to = { database: { writing: :queue } }
+
   # Don't care if the mailer can't send.
   config.action_mailer.raise_delivery_errors = false
 

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_31_084238) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_31_090002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -87,7 +87,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_31_084238) do
   create_table "manuals", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.datetime "generated_at"
+    t.integer "input_tokens"
     t.string "model"
+    t.integer "output_tokens"
     t.bigint "recording_id", null: false
     t.integer "status", default: 0, null: false
     t.text "summary"
@@ -102,6 +104,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_31_084238) do
     t.string "error_message"
     t.integer "failed_stage"
     t.string "mime"
+    t.datetime "raw_video_purged_at"
     t.float "scene_threshold", default: 0.4, null: false
     t.integer "status", default: 0, null: false
     t.string "storage_key"

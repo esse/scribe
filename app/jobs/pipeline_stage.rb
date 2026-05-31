@@ -1,17 +1,53 @@
-# Shared behaviour for the linear pipeline jobs (SPEC §8.1): load the recording,
-# run the stage idempotently, and on failure record status/failed_stage/error,
-# void the credit hold, and report to Sentry. Each stage breadcrumbs its
-# transition for observability (SPEC §15).
+# Shared behaviour for the linear pipeline jobs (SPEC §8.1, §16.7): load the
+# recording, run the stage idempotently, retry transient errors a few times, and
+# on a permanent (or exhausted) failure record status/failed_stage/error, void
+# the credit hold, and report to Sentry. Each stage breadcrumbs its transition
+# for observability (SPEC §15).
 module PipelineStage
   extend ActiveSupport::Concern
 
+  # Errors worth retrying automatically — transient infrastructure/network blips
+  # rather than bad input. Wrapped in TransientError so ActiveJob's retry_on can
+  # back off and try again (SPEC §16.7: "retries per stage").
+  TRANSIENT_ERRORS = [
+    Net::OpenTimeout, Net::ReadTimeout, Timeout::Error,
+    Errno::ECONNRESET, Errno::ECONNREFUSED, Errno::EPIPE,
+    SocketError, EOFError
+  ].freeze
+
+  # Raised to trigger an automatic retry; carries the context needed to record a
+  # permanent failure once retries are exhausted.
+  class TransientError < StandardError
+    attr_reader :recording_id, :stage
+
+    def initialize(recording_id:, stage:, cause:)
+      @recording_id = recording_id
+      @stage = stage
+      super(cause.message)
+      set_backtrace(cause.backtrace) if cause.backtrace
+    end
+  end
+
+  included do
+    # Back off and retry transient failures; record a permanent failure when the
+    # attempts are used up.
+    retry_on TransientError, attempts: 3, wait: :polynomially_longer do |job, error|
+      job.send(:record_exhausted_failure, error)
+    end
+  end
+
   private
 
-  # Run a stage body with uniform failure handling.
+  # Run a stage body with uniform retry + failure handling.
   #   stage: the Recording#failed_stage symbol used if this blows up.
   def run_stage(recording, stage:)
     breadcrumb(recording, stage)
     yield
+  rescue TransientError
+    raise # already classified; let retry_on handle it
+  rescue *TRANSIENT_ERRORS => e
+    report(e, recording:, stage:, transient: true)
+    raise TransientError.new(recording_id: recording.id, stage:, cause: e)
   rescue StandardError => e
     handle_stage_failure(recording, stage, e)
   end
@@ -20,6 +56,14 @@ module PipelineStage
     Credits::Ledger.void!(recording.credit_hold)
     recording.fail!(stage:, error:)
     report(error, recording:, stage:)
+  end
+
+  # Called by retry_on when transient retries are exhausted.
+  def record_exhausted_failure(error)
+    recording = Recording.find_by(id: error.recording_id)
+    return unless recording
+
+    handle_stage_failure(recording, error.stage, error)
   end
 
   def breadcrumb(recording, stage)
