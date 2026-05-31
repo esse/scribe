@@ -1,0 +1,27 @@
+<% content_for :title, "Record" %>
+
+<section data-controller="recorder">
+  <h1>Record your screen</h1>
+  <p class="muted">
+    Capture your screen with narration. We transcribe the audio, pull aligned
+    screenshots, and have Claude write a step-by-step manual. Desktop Chromium or
+    Firefox only — screen capture isn't available on mobile Safari.
+  </p>
+
+  <label class="toggle">
+    <input type="checkbox" data-recorder-target="systemAudio">
+    Include system/tab audio (Chromium only). Default captures the microphone.
+  </label>
+
+  <div class="controls">
+    <button data-recorder-target="start" data-action="recorder#start">Start recording</button>
+    <button data-recorder-target="stop" data-action="recorder#stop" disabled>Stop &amp; upload</button>
+  </div>
+
+  <p class="status" data-recorder-target="status" aria-live="polite">Ready.</p>
+
+  <p class="muted small">
+    Recording requires a secure (HTTPS) context and a user gesture. You'll be
+    prompted to choose a screen and grant microphone access.
+  </p>
+</section>

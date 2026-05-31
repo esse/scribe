@@ -1,0 +1,24 @@
+<% content_for :title, "Recording ##{@recording.id}" %>
+
+<section data-controller="status" data-status-url-value="<%= recording_path(@recording, format: :json) %>">
+  <h1>Recording #<%= @recording.id %></h1>
+
+  <p>Status: <span class="badge" data-status-target="badge"><%= @recording.status.humanize %></span></p>
+
+  <ol class="pipeline">
+    <% %w[uploaded transcribing extracting_frames generating_manual complete].each do |stage| %>
+      <li data-stage="<%= stage %>"><%= stage.humanize %></li>
+    <% end %>
+  </ol>
+
+  <% if @recording.failed? %>
+    <p class="flash alert">
+      Failed at <strong><%= @recording.failed_stage&.humanize %></strong>:
+      <%= @recording.error_message %>
+    </p>
+  <% end %>
+
+  <p data-status-target="link" hidden>
+    <a data-status-target="manualLink" href="#">View generated manual →</a>
+  </p>
+</section>
