@@ -177,12 +177,14 @@ transcription. Pick a **vision-capable** chat model.
 # .env
 SECRET_KEY_BASE=<openssl rand -hex 32>
 LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-...
+OPENAI_LLM_API_KEY=sk-...
 OPENAI_LLM_MODEL=gpt-4o
 ```
 
-(`OPENAI_API_KEY` is shared with the OpenAI transcription option, so one key
-covers both if you want hosted STT too.)
+The LLM and OpenAI-transcription keys are **independent**: `OPENAI_LLM_API_KEY`
+(+ `OPENAI_BASE_URL`) is for the LLM, `OPENAI_API_KEY` is for STT. They can be
+different keys or endpoints. If you only set `OPENAI_API_KEY`, the LLM reuses it,
+so one key still covers both.
 
 ### 4. Hosted transcription (Deepgram or OpenAI)
 
@@ -258,6 +260,33 @@ docker run -p 3000:80 -v "$PWD/data:/data" \
 The container serves plain HTTP by default (for `localhost`). If you put it
 behind an HTTPS reverse proxy, set `FORCE_SSL=true` to enable HSTS + secure
 cookies.
+
+### Common Docker commands
+
+```bash
+docker compose up --build -d     # build + start in the background
+docker compose logs -f           # follow logs
+docker compose ps                # status
+docker compose down              # stop (your ./data is kept)
+
+# Update to a newer version of the code:
+git pull && docker compose up --build -d
+
+# Process an existing video / list recordings (see scenario 6):
+docker compose exec scribe bin/rails "scribe:ingest[/data/clip.mp4]"
+docker compose exec scribe bin/rails scribe:list
+
+# Open a Rails console inside the container:
+docker compose exec scribe bin/rails console
+
+# Start over: stop and delete all local data (irreversible):
+docker compose down && rm -rf ./data
+```
+
+> First build is larger/slower than a typical Rails image because it bundles
+> ffmpeg, WeasyPrint, and a pre-downloaded local Whisper model. After that,
+> startup is fast and fully offline-capable. The database is created/migrated
+> automatically on first boot.
 
 ---
 
@@ -345,8 +374,9 @@ All config comes from ENV (see `.env.example`). Highlights:
 | `LLM_PROVIDER` | `anthropic` if key set, else `fake` | `anthropic` \| `openai` \| `local` \| `fake` |
 | `ANTHROPIC_API_KEY` | — | Your Anthropic key (provider `anthropic`) |
 | `ANTHROPIC_MANUAL_MODEL` | `claude-sonnet-4-6` | Anthropic model for manual generation |
-| `OPENAI_LLM_MODEL` | `gpt-4o` | OpenAI chat model (provider `openai`; reuses `OPENAI_API_KEY`, vision-capable) |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Override for Azure/proxies (provider `openai`) |
+| `OPENAI_LLM_API_KEY` | falls back to `OPENAI_API_KEY` | OpenAI key for the LLM (provider `openai`), independent of the STT key |
+| `OPENAI_LLM_MODEL` | `gpt-4o` | OpenAI chat model (provider `openai`; vision-capable) |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI LLM endpoint — override for Azure/proxies |
 | `LLM_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible endpoint (provider `local`) |
 | `LLM_MODEL` | `llama3.2-vision` | Local model id (vision-capable) |
 | `LLM_API_KEY` | — | Optional bearer token for the local server |
@@ -354,7 +384,8 @@ All config comes from ENV (see `.env.example`). Highlights:
 | `WHISPER_BIN` | `faster-whisper` (`/rails/script/faster-whisper` in Docker) | Local STT CLI emitting JSON segments |
 | `WHISPER_MODEL` | `base` | faster-whisper model size (`tiny`/`base`/`small`/`medium`/`large-v3`) |
 | `WHISPER_MODEL_DIR` | — (`/opt/whisper-models` in Docker) | Where Whisper models are cached |
-| `DEEPGRAM_API_KEY` / `OPENAI_API_KEY` | — | Hosted STT keys |
+| `DEEPGRAM_API_KEY` | — | Deepgram STT key |
+| `OPENAI_API_KEY` | — | OpenAI STT key (and the fallback LLM key) |
 | `WRITE_RESULT_FILES` | `true` | Write manual.json/md/html/pdf to disk |
 | `RAW_VIDEO_RETENTION_DAYS` | `0` (keep forever) | Auto-purge raw videos older than N days |
 | `WEASYPRINT_CMD` | `weasyprint` | PDF renderer command |
