@@ -34,6 +34,10 @@
 # This is the mountable folder — never commit it.
 /data/
 
+# Python bytecode caches (from the local Whisper wrapper in script/).
+__pycache__/
+*.pyc
+
 /public/assets
 
 # Ignore key files for decrypting credentials and more.

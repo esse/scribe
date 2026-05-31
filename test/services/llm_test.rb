@@ -3,6 +3,7 @@ require "test_helper"
 class LLMTest < ActiveSupport::TestCase
   test "factory selects a client per provider" do
     assert_instance_of Anthropic::Client, LLM.client(provider: "anthropic")
+    assert_instance_of LLM::OpenaiClient, LLM.client(provider: "openai")
     assert_instance_of LLM::LocalClient, LLM.client(provider: "local")
     assert_instance_of Anthropic::FakeClient, LLM.client(provider: "fake")
     assert_raises(LLM::Error) { LLM.client(provider: "nope") }
@@ -10,6 +11,7 @@ class LLMTest < ActiveSupport::TestCase
 
   test "model id depends on provider" do
     assert_equal Scribe.config.llm_model, LLM.model(provider: "local")
+    assert_equal Scribe.config.openai_llm_model, LLM.model(provider: "openai")
     assert_equal Scribe.config.manual_model, LLM.model(provider: "anthropic")
   end
 

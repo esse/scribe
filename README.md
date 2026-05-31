@@ -10,8 +10,9 @@ a fully local model), and everything — the database, your recordings, and the
 generated manuals — stays in a single folder you control. There are no accounts,
 no billing, and nothing phones home.
 
-- 🔑 **Your keys, your machine.** Use your own Anthropic key, or point Scribe at a
-  local llama model (Ollama / llama.cpp / LM Studio) so nothing leaves the box.
+- 🔑 **Your keys, your machine.** Use your own Anthropic or OpenAI key, or point
+  Scribe at a local llama model (Ollama / llama.cpp / LM Studio) so nothing leaves
+  the box.
 - 📁 **One folder = all your data.** SQLite database + recordings + generated
   manual files all live under one data dir. Mount it into Docker and back it up
   by copying a folder.
@@ -101,7 +102,7 @@ response shape, so the pipeline doesn't care which one ran.
 | Resumable upload | tus (`tus-server` at `/files`, `tus-js-client` in the browser)          |
 | Media            | system `ffmpeg`/`ffprobe`                                               |
 | Transcription    | provider-abstracted: **local Whisper** (bundled in the image) / Deepgram / OpenAI / `stub` |
-| LLM              | **Anthropic** (your key) **or local llama** (OpenAI-compatible) + offline fake |
+| LLM              | **Anthropic** / **OpenAI** (your key) **or local llama** (OpenAI-compatible) + offline fake |
 | PDF              | HTML exporter rendered with **WeasyPrint** (CLI, no browser)            |
 | Accounts/billing | none — single implicit local user                                       |
 
@@ -167,7 +168,23 @@ docker compose up --build
 this works on Linux too. Any OpenAI-compatible server works — llama.cpp
 (`http://host.docker.internal:8080/v1`), LM Studio (`:1234/v1`), etc.
 
-### 3. Hosted transcription (Deepgram or OpenAI)
+### 3. OpenAI (your key)
+
+Use OpenAI's hosted models (GPT-4o, etc.) for the manual, with local Whisper for
+transcription. Pick a **vision-capable** chat model.
+
+```ini
+# .env
+SECRET_KEY_BASE=<openssl rand -hex 32>
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+OPENAI_LLM_MODEL=gpt-4o
+```
+
+(`OPENAI_API_KEY` is shared with the OpenAI transcription option, so one key
+covers both if you want hosted STT too.)
+
+### 4. Hosted transcription (Deepgram or OpenAI)
 
 If you don't want to run Whisper, use a hosted STT provider with your own key.
 Combine with either LLM option above.
@@ -187,7 +204,7 @@ OPENAI_API_KEY=...
 OPENAI_TRANSCRIBE_MODEL=whisper-1
 ```
 
-### 4. Offline demo (no keys at all)
+### 5. Offline demo (no keys at all)
 
 Leave `ANTHROPIC_API_KEY` unset and use the stub transcriber. The pipeline runs
 end-to-end with deterministic placeholders — handy for trying the UI.
@@ -199,7 +216,7 @@ LLM_PROVIDER=fake
 TRANSCRIPTION_PROVIDER=stub
 ```
 
-### 5. CLI — process an existing recording without the browser
+### 6. CLI — process an existing recording without the browser
 
 Use the running container to turn a video you already have into a manual. Drop
 the file under `./data` (so the container can see it), then run the rake task:
@@ -226,7 +243,7 @@ docker run --rm -v "$PWD/data:/data" \
   scribe bin/rails "scribe:ingest[/data/demo.mp4]"
 ```
 
-### 6. Plain `docker run` (no compose)
+### 7. Plain `docker run` (no compose)
 
 ```bash
 docker build -t scribe .
@@ -325,9 +342,11 @@ All config comes from ENV (see `.env.example`). Highlights:
 |----------|---------|---------|
 | `SCRIBE_DATA_DIR` | `./data` (`/data` in Docker) | Where the DB, recordings and manuals live |
 | `SECRET_KEY_BASE` | — (required in production/Docker) | Signs download URLs; generate with `openssl rand -hex 32` |
-| `LLM_PROVIDER` | `anthropic` if key set, else `fake` | `anthropic` \| `local` \| `fake` |
+| `LLM_PROVIDER` | `anthropic` if key set, else `fake` | `anthropic` \| `openai` \| `local` \| `fake` |
 | `ANTHROPIC_API_KEY` | — | Your Anthropic key (provider `anthropic`) |
-| `ANTHROPIC_MANUAL_MODEL` | `claude-sonnet-4-6` | Model for manual generation |
+| `ANTHROPIC_MANUAL_MODEL` | `claude-sonnet-4-6` | Anthropic model for manual generation |
+| `OPENAI_LLM_MODEL` | `gpt-4o` | OpenAI chat model (provider `openai`; reuses `OPENAI_API_KEY`, vision-capable) |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Override for Azure/proxies (provider `openai`) |
 | `LLM_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible endpoint (provider `local`) |
 | `LLM_MODEL` | `llama3.2-vision` | Local model id (vision-capable) |
 | `LLM_API_KEY` | — | Optional bearer token for the local server |
@@ -345,9 +364,9 @@ All config comes from ENV (see `.env.example`). Highlights:
 
 ## Key modules
 
-- `app/services/llm.rb` + `app/services/llm/local_client.rb` — provider selection
-  and the OpenAI-compatible **local llama** client (translates to/from the
-  Anthropic message shape).
+- `app/services/llm.rb` — provider selection (`anthropic` / `openai` / `local` /
+  `fake`). `llm/local_client.rb` is the OpenAI-compatible client (translates
+  to/from the Anthropic message shape); `llm/openai_client.rb` points it at OpenAI.
 - `app/services/anthropic/` — `Client` (HTTP) and `FakeClient` (offline).
 - `app/services/transcription/` — `Base.build` selects the provider; `Whisper`
   (local CLI, default), `Deepgram`/`Openai` (hosted), and the offline `Stub`.
@@ -382,7 +401,8 @@ Removed, because they don't belong in a tool you run for yourself:
 
 Added:
 
-- **Local llama LLM** option (`LLM_PROVIDER=local`) alongside Anthropic.
+- **OpenAI** (`LLM_PROVIDER=openai`) and **local llama** (`LLM_PROVIDER=local`)
+  options alongside Anthropic — full choice of model.
 - **Existing-recording ingest** via web upload and the `scribe:ingest` CLI.
 - **Result files** written to the data folder for every completed manual.
 
