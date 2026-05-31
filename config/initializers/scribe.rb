@@ -15,6 +15,7 @@ module Scribe
 
       # --- LLM provider (manual generation) ---
       # "anthropic" — the user's own Anthropic API key (hosted Claude).
+      # "openai"    — the user's own OpenAI API key (hosted GPT-4o, etc.).
       # "local"     — a local llama model exposed over an OpenAI-compatible API
       #               (Ollama, llama.cpp server, LM Studio…), so nothing leaves
       #               the machine.
@@ -33,6 +34,11 @@ module Scribe
       c.llm_base_url   = ENV["LLM_BASE_URL"].presence || "http://localhost:11434/v1"
       c.llm_model      = ENV["LLM_MODEL"].presence || "llama3.2-vision"
       c.llm_api_key    = ENV["LLM_API_KEY"] # usually unset for local servers
+
+      # OpenAI (hosted GPT-4o, etc.) — reuses your OPENAI_API_KEY. Use a
+      # vision-capable chat model so it can read the screenshots.
+      c.openai_base_url  = ENV["OPENAI_BASE_URL"].presence || "https://api.openai.com/v1"
+      c.openai_llm_model = ENV["OPENAI_LLM_MODEL"].presence || "gpt-4o"
 
       c.max_images_per_call = ENV.fetch("CLAUDE_MAX_IMAGES", 25).to_i
       c.chunk_seconds       = ENV.fetch("CLAUDE_CHUNK_SECONDS", 600).to_i # ≈10 min (SPEC §8.5)
