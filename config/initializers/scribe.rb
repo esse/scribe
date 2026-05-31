@@ -35,10 +35,14 @@ module Scribe
       c.llm_model      = ENV["LLM_MODEL"].presence || "llama3.2-vision"
       c.llm_api_key    = ENV["LLM_API_KEY"] # usually unset for local servers
 
-      # OpenAI (hosted GPT-4o, etc.) — reuses your OPENAI_API_KEY. Use a
-      # vision-capable chat model so it can read the screenshots.
-      c.openai_base_url  = ENV["OPENAI_BASE_URL"].presence || "https://api.openai.com/v1"
-      c.openai_llm_model = ENV["OPENAI_LLM_MODEL"].presence || "gpt-4o"
+      # OpenAI (hosted GPT-4o, etc.) for manual generation. Its own key/base/model,
+      # independent from the OpenAI *transcription* settings below — so the LLM and
+      # STT can use different keys or endpoints. Falls back to OPENAI_API_KEY when
+      # OPENAI_LLM_API_KEY isn't set, so a single key still works for both.
+      # Use a vision-capable chat model so it can read the screenshots.
+      c.openai_llm_api_key = ENV["OPENAI_LLM_API_KEY"].presence || ENV["OPENAI_API_KEY"].presence
+      c.openai_base_url    = ENV["OPENAI_BASE_URL"].presence || "https://api.openai.com/v1"
+      c.openai_llm_model   = ENV["OPENAI_LLM_MODEL"].presence || "gpt-4o"
 
       c.max_images_per_call = ENV.fetch("CLAUDE_MAX_IMAGES", 25).to_i
       c.chunk_seconds       = ENV.fetch("CLAUDE_CHUNK_SECONDS", 600).to_i # ≈10 min (SPEC §8.5)

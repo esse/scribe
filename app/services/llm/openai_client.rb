@@ -5,7 +5,7 @@ module LLM
   class OpenaiClient < LocalClient
     def initialize(
       base_url: Scribe.config.openai_base_url,
-      api_key: Scribe.config.openai_api_key,
+      api_key: Scribe.config.openai_llm_api_key,
       model: Scribe.config.openai_llm_model
     )
       super
