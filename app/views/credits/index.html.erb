@@ -1,0 +1,23 @@
+<% content_for :title, "Credits" %>
+<h1>Credits</h1>
+
+<p class="balance">Available balance: <strong><%= @balance %></strong> credits</p>
+<p class="muted small">
+  Processing reserves credits when it starts and settles them on completion.
+  Built-in exports are free.
+</p>
+
+<% if @packs.empty? %>
+  <p class="muted">No credit packs are configured yet.</p>
+<% else %>
+  <div class="packs" data-controller="checkout">
+    <% @packs.each do |pack| %>
+      <div class="pack">
+        <h2><%= pack.name %></h2>
+        <p class="credits"><%= pack.credits %> credits</p>
+        <p class="price"><%= pack.price %></p>
+        <button data-action="checkout#buy" data-pack-id="<%= pack.id %>">Buy</button>
+      </div>
+    <% end %>
+  </div>
+<% end %>

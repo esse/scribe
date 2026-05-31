@@ -1,0 +1,40 @@
+<% content_for :title, @manual.title.presence || "Manual" %>
+
+<section data-controller="manual-editor exporter"
+         data-manual-editor-url-value="<%= manual_path(@manual) %>"
+         data-exporter-formats-url-value="<%= manual_exports_formats_path(@manual) %>"
+         data-exporter-create-url-value="<%= manual_exports_path(@manual) %>">
+
+  <div class="manual-head">
+    <input class="title-input" data-manual-editor-target="title" value="<%= @manual.title %>"
+           data-action="change->manual-editor#saveManual" aria-label="Manual title">
+    <textarea class="summary-input" data-manual-editor-target="summary"
+              data-action="change->manual-editor#saveManual" aria-label="Summary"><%= @manual.summary %></textarea>
+    <p class="status small" data-manual-editor-target="status"></p>
+  </div>
+
+  <div class="exports">
+    <strong>Export:</strong>
+    <span data-exporter-target="buttons"></span>
+    <span class="small" data-exporter-target="status"></span>
+  </div>
+
+  <ol class="steps">
+    <% @manual.steps.each do |step| %>
+      <li class="step" data-step-id="<%= step.id %>">
+        <div class="step-frame">
+          <% if step.frame %>
+            <img src="<%= Storage.signed_url(step.frame.storage_key) %>" alt="<%= step.title %>" loading="lazy">
+          <% else %>
+            <div class="noframe">No screenshot</div>
+          <% end %>
+        </div>
+        <div class="step-body">
+          <input class="step-title" data-step-field="title" value="<%= step.title %>" aria-label="Step title">
+          <textarea class="step-text" data-step-field="body_markdown" aria-label="Step body"><%= step.body_markdown %></textarea>
+          <button data-action="manual-editor#saveStep" data-step-id="<%= step.id %>">Save step</button>
+        </div>
+      </li>
+    <% end %>
+  </ol>
+</section>

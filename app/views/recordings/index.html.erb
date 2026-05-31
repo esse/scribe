@@ -1,0 +1,25 @@
+<% content_for :title, "Recordings" %>
+<h1>Your recordings</h1>
+
+<% if @recordings.empty? %>
+  <p class="muted">No recordings yet. <%= link_to "Record one", new_recording_path %>.</p>
+<% else %>
+  <table class="list">
+    <thead><tr><th>Created</th><th>Status</th><th>Duration</th><th></th></tr></thead>
+    <tbody>
+      <% @recordings.each do |recording| %>
+        <tr>
+          <td><%= recording.created_at.strftime("%Y-%m-%d %H:%M") %></td>
+          <td><span class="badge badge-<%= recording.status %>"><%= recording.status.humanize %></span></td>
+          <td><%= recording.duration_seconds ? "#{recording.duration_seconds.round}s" : "—" %></td>
+          <td>
+            <%= link_to "View", recording_path(recording) %>
+            <% if recording.complete? && recording.manual %>
+              · <%= link_to "Manual", manual_path(recording.manual) %>
+            <% end %>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>

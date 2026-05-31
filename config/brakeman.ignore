@@ -1,0 +1,15 @@
+{
+  "ignored_warnings": [
+    {
+      "warning_type": "Command Injection",
+      "warning_code": 14,
+      "fingerprint": "d932dafda75040d4edeb048f26a1d276a5917800c186df1a8ececb3ec8a46a3f",
+      "check_name": "Execute",
+      "message": "Possible command injection",
+      "file": "app/services/media/frame_extractor.rb",
+      "line": 65,
+      "note": "False positive. ffmpeg is invoked via Open3.capture3 in array form (no shell), so arguments are passed as separate argv and cannot be shell-interpreted. The interpolated values are a literal prefix and timestamp_ms.to_i (an integer); the ffmpeg binary path comes from trusted server ENV (FFMPEG_BIN), not user input."
+    }
+  ],
+  "brakeman_version": "7.1.0"
+}
