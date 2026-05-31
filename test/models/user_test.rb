@@ -1,8 +1,15 @@
 require "test_helper"
 
 class UserTest < ActiveSupport::TestCase
-  test "downcases and strips email_address" do
-    user = User.new(email_address: " DOWNCASED@EXAMPLE.COM ")
-    assert_equal("downcased@example.com", user.email_address)
+  test "User.local returns the single implicit user" do
+    assert_equal User.first, User.local
+    assert_equal User.local, User.local, "stable across calls"
+  end
+
+  test "User.local creates a user when none exists" do
+    User.delete_all
+    assert_difference -> { User.count }, 1 do
+      assert User.local.persisted?
+    end
   end
 end

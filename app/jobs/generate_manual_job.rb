@@ -25,7 +25,10 @@ class GenerateManualJob < ApplicationJob
       end
 
       recording.complete!
-      Credits::Ledger.settle!(recording.credit_hold)
+      # Local-first: write the finished manual out as plain files (json + md/html/
+      # pdf) under the data dir, so results live on disk and travel with the
+      # mounted folder rather than being locked inside the database.
+      ResultFiles.write(manual.reload) if Scribe.config.write_result_files
       log_usage(recording, result)
     end
   end

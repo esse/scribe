@@ -1,8 +1,7 @@
 # Shared behaviour for the linear pipeline jobs (SPEC §8.1, §16.7): load the
 # recording, run the stage idempotently, retry transient errors a few times, and
-# on a permanent (or exhausted) failure record status/failed_stage/error, void
-# the credit hold, and report to Sentry. Each stage breadcrumbs its transition
-# for observability (SPEC §15).
+# on a permanent (or exhausted) failure record status/failed_stage/error and log
+# it. Each stage breadcrumbs its transition to the log.
 module PipelineStage
   extend ActiveSupport::Concern
 
@@ -53,7 +52,6 @@ module PipelineStage
   end
 
   def handle_stage_failure(recording, stage, error)
-    Credits::Ledger.void!(recording.credit_hold)
     recording.fail!(stage:, error:)
     report(error, recording:, stage:)
   end
@@ -68,11 +66,12 @@ module PipelineStage
 
   def breadcrumb(recording, stage)
     Rails.logger.info(tag: "pipeline", recording_id: recording.id, stage:)
-    Sentry.add_breadcrumb(Sentry::Breadcrumb.new(category: "pipeline", message: stage.to_s, data: { recording_id: recording.id })) if defined?(Sentry) && Sentry.initialized?
   end
 
+  # Local-first: failures are recorded on the recording (status/failed_stage/
+  # error_message) and logged. Nothing is reported to any external service.
   def report(error, **context)
-    Sentry.capture_exception(error, extra: context) if defined?(Sentry) && Sentry.initialized?
+    Rails.logger.error(tag: "pipeline_error", message: error.message, **context.transform_values(&:to_s))
   end
 
   # Download a recording's video to a temp path for ffmpeg work. Defaults to the

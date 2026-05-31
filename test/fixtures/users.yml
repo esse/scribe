@@ -1,9 +1,4 @@
-<% password_digest = BCrypt::Password.create("password") %>
-
+# Local-first: a single implicit user owns everything. One fixture is enough,
+# and User.local resolves to it.
 one:
-  email_address: one@example.com
-  password_digest: <%= password_digest %>
-
-two:
-  email_address: two@example.com
-  password_digest: <%= password_digest %>
+  name: Local user

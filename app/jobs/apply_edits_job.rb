@@ -2,7 +2,7 @@
 # transcription. Reads the recording's keep-segments, cuts the source video with
 # ffmpeg (stream-copy, so even multi-hour recordings finish in seconds), stores
 # the trimmed result alongside the original, and updates the duration so the rest
-# of the pipeline — and credit metering — works on the edited video.
+# of the pipeline works on the edited video.
 #
 # A full-length / empty edit list is a no-op pass-through straight to transcription.
 class ApplyEditsJob < ApplicationJob

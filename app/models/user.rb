@@ -1,13 +1,9 @@
 class User < ApplicationRecord
-  has_secure_password
-  has_many :sessions, dependent: :destroy
   has_many :recordings, dependent: :destroy
-  has_many :credit_transactions, dependent: :destroy
 
-  normalizes :email_address, with: ->(e) { e.strip.downcase }
-
-  # Available credit balance, derived from the ledger — never stored (SPEC §12.1).
-  def available_credits
-    credit_transactions.counted.sum(:amount)
+  # Local-first: there are no accounts. A single implicit user owns everything on
+  # this machine, auto-provisioned the first time it's needed.
+  def self.local
+    first || create!(name: "Local user")
   end
 end

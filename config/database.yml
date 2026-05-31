@@ -1,107 +1,52 @@
-# PostgreSQL. Versions 9.5 and up are supported.
+# SQLite, local-first. The whole datastore is a set of files under the data dir
+# (SCRIBE_DATA_DIR, default ./data), so mounting that one folder into a container
+# carries all state — no external database service required.
 #
-# Install the pg driver:
-#   gem install pg
-# On macOS with Homebrew:
-#   gem install pg -- --with-pg-config=/opt/homebrew/bin/pg_config
-# On Windows:
-#   gem install pg
-#       Choose the win32 build.
-#       Install PostgreSQL and put its /bin directory on your path.
-#
-# Configure Using Gemfile
-# gem "pg"
-#
+# Rails 8 keeps the job queue, cache, and cable in their own SQLite files. They
+# all live alongside the primary database in the data dir.
+<% data_dir = ENV.fetch("SCRIBE_DATA_DIR", Rails.root.join("data").to_s) %>
+<% db_dir = File.join(data_dir, "db") %>
+
 default: &default
-  adapter: postgresql
-  encoding: unicode
-  # For details on connection pooling, see Rails configuration guide
-  # https://guides.rubyonrails.org/configuring.html#database-pooling
-  max_connections: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
-  host: <%= ENV.fetch("PGHOST", "localhost") %>
-  port: <%= ENV.fetch("PGPORT", 5432) %>
-  username: <%= ENV.fetch("PGUSER", "root") %>
-  password: <%= ENV.fetch("PGPASSWORD", "postgres") %>
+  adapter: sqlite3
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  timeout: 5000
 
-
+# Development and test only use the primary DB and the job queue (cache is in
+# memory, cable is async), so they configure just those two.
 development:
   primary:
     <<: *default
-    database: scribe_development
-  # Dedicated Solid Queue database so `bin/jobs` works in dev exactly like prod
-  # (schema in db/queue_schema.rb, loaded by db:prepare). See development.rb for
-  # the connects_to wiring.
+    database: <%= File.join(db_dir, "scribe.sqlite3") %>
   queue:
     <<: *default
-    database: scribe_development_queue
+    database: <%= File.join(db_dir, "scribe_queue.sqlite3") %>
     migrations_paths: db/queue_migrate
 
-  # Connect on a TCP socket. Omitted by default since the client uses a
-  # domain socket that doesn't need configuration. Windows does not have
-  # domain sockets, so uncomment these lines.
-  #host: localhost
-
-  # The TCP port the server listens on. Defaults to 5432.
-  # If your server runs on a different port number, change accordingly.
-  #port: 5432
-
-  # Schema search path. The server defaults to $user,public
-  #schema_search_path: myapp,sharedapp,public
-
-  # Minimum log levels, in increasing order:
-  #   debug5, debug4, debug3, debug2, debug1,
-  #   log, notice, warning, error, fatal, and panic
-  # Defaults to warning.
-  #min_messages: notice
-
-# Warning: The database defined as "test" will be erased and
-# re-generated from your development database when you run "rake".
-# Do not set this db to the same as development or production.
+# The test database is kept in tmp (never the data dir) so the suite is
+# disposable and never touches real recordings.
 test:
-  <<: *default
-  database: scribe_test
-
-# As with config/credentials.yml, you never want to store sensitive information,
-# like your database password, in your source code. If your source code is
-# ever seen by anyone, they now have access to your database.
-#
-# Instead, provide the password or a full connection URL as an environment
-# variable when you boot the app. For example:
-#
-#   DATABASE_URL="postgres://myuser:mypass@localhost/somedatabase"
-#
-# If the connection URL is provided in the special DATABASE_URL environment
-# variable, Rails will automatically merge its configuration values on top of
-# the values provided in this file. Alternatively, you can specify a connection
-# URL environment variable explicitly:
-#
-#   production:
-#     url: <%= ENV["MY_APP_DATABASE_URL"] %>
-#
-# Connection URLs for non-primary databases can also be configured using
-# environment variables. The variable name is formed by concatenating the
-# connection name with `_DATABASE_URL`. For example:
-#
-#   CACHE_DATABASE_URL="postgres://cacheuser:cachepass@localhost/cachedatabase"
-#
-# Read https://guides.rubyonrails.org/configuring.html#configuring-a-database
-# for a full overview on how database connection configuration can be specified.
-#
-production:
-  primary: &primary_production
+  primary:
     <<: *default
-    database: scribe_production
-    username: scribe
-    password: <%= ENV["SCRIBE_DATABASE_PASSWORD"] %>
-  cache:
-    <<: *primary_production
-    database: scribe_production_cache
-    migrations_paths: db/cache_migrate
+    database: tmp/test/scribe_test.sqlite3
   queue:
-    <<: *primary_production
-    database: scribe_production_queue
+    <<: *default
+    database: tmp/test/scribe_test_queue.sqlite3
     migrations_paths: db/queue_migrate
+
+production:
+  primary:
+    <<: *default
+    database: <%= File.join(db_dir, "scribe.sqlite3") %>
+  queue:
+    <<: *default
+    database: <%= File.join(db_dir, "scribe_queue.sqlite3") %>
+    migrations_paths: db/queue_migrate
+  cache:
+    <<: *default
+    database: <%= File.join(db_dir, "scribe_cache.sqlite3") %>
+    migrations_paths: db/cache_migrate
   cable:
-    <<: *primary_production
-    database: scribe_production_cable
+    <<: *default
+    database: <%= File.join(db_dir, "scribe_cable.sqlite3") %>
     migrations_paths: db/cable_migrate

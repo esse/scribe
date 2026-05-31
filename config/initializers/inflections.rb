@@ -14,3 +14,9 @@
 # ActiveSupport::Inflector.inflections(:en) do |inflect|
 #   inflect.acronym "RESTful"
 # end
+
+# So Zeitwerk maps app/services/llm.rb and app/services/llm/local_client.rb to
+# the LLM module (instead of "Llm").
+ActiveSupport::Inflector.inflections(:en) do |inflect|
+  inflect.acronym "LLM"
+end

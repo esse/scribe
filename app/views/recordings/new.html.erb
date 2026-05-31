@@ -25,3 +25,16 @@
     prompted to choose a screen and grant microphone access.
   </p>
 </section>
+
+<section class="existing-upload">
+  <h2>Or use a recording you already have</h2>
+  <p class="muted">
+    Already captured a screen recording? Upload it (webm, mp4, mov, mkv) and
+    Scribe runs the same pipeline — no live capture needed. You can also do this
+    from the command line: <code>bin/rails "scribe:ingest[/path/to/video.mp4]"</code>.
+  </p>
+  <%= form_with url: upload_recordings_path, method: :post, multipart: true do |f| %>
+    <%= f.file_field :file, accept: "video/*", required: true %>
+    <%= f.submit "Upload & process" %>
+  <% end %>
+</section>

@@ -10,10 +10,8 @@ class PipelineRetryTest < ActiveSupport::TestCase
   end
 
   setup do
-    @user = users(:one)
+    @user = User.local
     @recording = @user.recordings.create!(status: :transcribing, storage_key: "x")
-    @hold = Credits::Ledger.tap { |l| l.grant_purchase!(user: @user, credits: 10, stripe_session_id: "cs_retry") }
-                           .hold!(user: @user, amount: 1, reference: @recording)
   end
 
   test "transient errors are wrapped so they retry instead of failing immediately" do
@@ -23,10 +21,9 @@ class PipelineRetryTest < ActiveSupport::TestCase
     end
     # Not marked failed yet — retry_on will get another attempt.
     assert @recording.reload.transcribing?
-    assert @hold.reload.pending?, "hold preserved across a transient retry"
   end
 
-  test "permanent errors mark the recording failed and void the hold" do
+  test "permanent errors mark the recording failed" do
     job = ProbeJob.new
     job.call_stage(@recording, stage: :transcription) { raise "bad input" }
 
@@ -34,7 +31,6 @@ class PipelineRetryTest < ActiveSupport::TestCase
     assert @recording.failed?
     assert_equal "transcription", @recording.failed_stage
     assert_equal "bad input", @recording.error_message
-    assert @hold.reload.void?
   end
 
   test "exhausted transient retries record a permanent failure" do
@@ -44,6 +40,5 @@ class PipelineRetryTest < ActiveSupport::TestCase
     @recording.reload
     assert @recording.failed?
     assert_equal "frame_extraction", @recording.failed_stage
-    assert @hold.reload.void?
   end
 end

@@ -1,13 +1,51 @@
 # Scribe
 
-Record your screen with narration, and Scribe turns it into a structured,
-illustrated user manual: it transcribes the voice-over, pulls screenshots
-aligned to what's being said, and has Claude write the steps. Export to
-Markdown, HTML, or PDF. Processing is paid for with prepaid credits via Stripe.
+Record your screen with narration (or hand it a recording you already have), and
+Scribe turns it into a structured, illustrated user manual: it transcribes the
+voice-over, pulls screenshots aligned to what's being said, and has an LLM write
+the steps. Export to Markdown, HTML, or PDF.
 
-This repository implements the SPEC in milestone order (see
-[Status](#status--milestones)). It's a Rails 8 monolith with Hotwire/Stimulus,
-PostgreSQL, and background jobs.
+**Scribe is local-first.** It runs on *your* machine with *your* own API keys (or
+a fully local model), and everything — the database, your recordings, and the
+generated manuals — stays in a single folder you control. There are no accounts,
+no billing, and nothing phones home.
+
+- 🔑 **Your keys, your machine.** Use your own Anthropic key, or point Scribe at a
+  local llama model (Ollama / llama.cpp / LM Studio) so nothing leaves the box.
+- 📁 **One folder = all your data.** SQLite database + recordings + generated
+  manual files all live under one data dir. Mount it into Docker and back it up
+  by copying a folder.
+- 🖥️ **Web or CLI.** Record in the browser, upload an existing video, or process a
+  file straight from the command line.
+- 📄 **Results as files.** Every finished manual is written out as
+  `manual.json` / `.md` / `.html` / `.pdf` next to the recording — not locked
+  inside a database.
+
+---
+
+## Quick start (Docker)
+
+The fastest way to run Scribe. You need Docker and one of: an Anthropic API key,
+or a local model server (see [scenarios](#docker-usage--all-scenarios)).
+
+```bash
+git clone <this-repo> scribe && cd scribe
+
+# One-time secret so signed URLs survive restarts, plus your own key:
+cat > .env <<EOF
+SECRET_KEY_BASE=$(openssl rand -hex 32)
+ANTHROPIC_API_KEY=sk-ant-...
+EOF
+
+docker compose up --build        # → http://localhost:3000
+```
+
+Your data lands in `./data` on the host (mounted at `/data` in the container).
+Stop with `Ctrl-C`; your recordings and manuals persist in `./data`.
+
+> The pipeline runs **offline by default** (a deterministic stub transcriber and
+> a fake LLM), so even with *no* keys you can click through the whole flow with
+> zero spend — you just won't get a real transcript or AI-written steps.
 
 ---
 
@@ -17,207 +55,335 @@ PostgreSQL, and background jobs.
 Browser (recorder)            Rails                         Jobs (Solid Queue)
 ─────────────────             ─────                         ──────────────────
 getDisplayMedia + mic   ─tus─▶ /files (resumable upload)
-MediaRecorder(5s chunks)       POST /recordings/:id/complete ─▶ reserve credits
-                                                                │
-                                                    TranscribeJob ─▶ STT provider
+MediaRecorder(5s chunks)       POST /recordings/:id/complete
+  — or —                                                        │
+upload an existing file ─────▶ POST /recordings/upload          │
+  — or —                                                        ▼
+CLI: scribe:ingest[path] ────────────────────────▶  TranscribeJob ─▶ STT provider
                                                     ExtractFramesJob ─▶ ffmpeg scene detect
-                                                    GenerateManualJob ─▶ Claude (vision + tools)
+                                                    GenerateManualJob ─▶ LLM (vision + tools)
 Review/Edit UI  ◀── manual JSON                     ExportJob ─▶ Exporters::Registry
-Buy credits     ── Checkout ─▶ Stripe ── webhook ─▶ credit ledger
+                                                    ResultFiles ─▶ data/.../results/*.{json,md,html,pdf}
 ```
 
 The pipeline is a linear **state machine** on `recordings.status`:
 
 ```
-recording → uploaded → transcribing → extracting_frames → generating_manual → complete
-                                  └─────────────── failed (records failed_stage) ◀┘
+recording → uploaded → editing → transcribing → extracting_frames → generating_manual → complete
+                                          └─────────────── failed (records failed_stage) ◀┘
 ```
 
 Each stage is an idempotent, retryable job that advances the status and enqueues
-the next on success; on failure it records `failed_stage`/`error_message`, voids
-the credit hold, and reports to Sentry.
+the next on success; on failure it records `failed_stage`/`error_message` and
+logs it. A failed recording can be re-run from its stage via
+`POST /recordings/:id/retry`.
 
-### Where Claude is and isn't used
+### Where the LLM is and isn't used
 
-The Anthropic API has **no speech-to-text**. Transcription goes through a
-dedicated STT provider behind `Transcription::Base`. Claude is used to segment
-the transcript into steps, choose the best frame per step (vision), and write
-the title/summary/step prose — emitted through a forced tool schema
-(`emit_manual`) for structured output.
+Speech-to-text is **not** done by the LLM — there's no STT in the Anthropic API
+or in llama models, so transcription always goes through a dedicated provider
+behind `Transcription::Base`. The LLM is used to segment the transcript into
+steps, choose the best frame per step (vision), and write the title/summary/step
+prose — emitted through a forced tool schema (`emit_manual`) for structured
+output. Both the Anthropic client and the local-llama client return the same
+response shape, so the pipeline doesn't care which one ran.
 
 ---
 
 ## Tech stack
 
-| Concern        | Choice                                                              |
-|----------------|---------------------------------------------------------------------|
-| Backend        | Ruby on Rails 8 (Hotwire/Turbo + Stimulus)                          |
-| Database       | PostgreSQL                                                          |
-| Background jobs| **Solid Queue** (Postgres-backed — see decision note below)         |
-| Object storage | S3-compatible behind `Storage`; disk adapter for dev/test           |
-| Resumable upload | tus (`tus-server` mounted at `/files`, `tus-js-client` in browser) |
-| Media          | system `ffmpeg`/`ffprobe`                                           |
-| Transcription  | provider-abstracted: Deepgram / OpenAI (hosted) / faster-whisper / `stub` |
-| AI             | Anthropic Messages API (plain HTTP client) + offline fake           |
-| PDF            | HTML exporter rendered with **WeasyPrint** (CLI, no browser)        |
-| Auth           | Rails 8 built-in authentication (session-based, per-user)           |
-| Billing        | Stripe Checkout (one-time) + append-only credit ledger             |
-| Observability  | Sentry (server + jobs), wired from milestone 0                      |
+| Concern          | Choice                                                                  |
+|------------------|-------------------------------------------------------------------------|
+| Backend          | Ruby on Rails 8 (Hotwire/Turbo + Stimulus)                              |
+| Database         | **SQLite** — a file in the data dir (no external DB service)            |
+| Background jobs  | **Solid Queue** (SQLite-backed; runs inside Puma in the container)      |
+| Storage          | Local disk under the data dir (served via short-lived signed URLs)      |
+| Resumable upload | tus (`tus-server` at `/files`, `tus-js-client` in the browser)          |
+| Media            | system `ffmpeg`/`ffprobe`                                               |
+| Transcription    | provider-abstracted: **local Whisper** (default) / Deepgram / OpenAI / `stub` |
+| LLM              | **Anthropic** (your key) **or local llama** (OpenAI-compatible) + offline fake |
+| PDF              | HTML exporter rendered with **WeasyPrint** (CLI, no browser)            |
+| Accounts/billing | none — single implicit local user                                       |
 
 ---
 
-## Getting started (local dev)
+## Docker usage — all scenarios
 
-System deps: Ruby (see `.ruby-version`), `ffmpeg`, and `weasyprint` (PDF export).
-Postgres and object storage (MinIO) come from `docker compose`.
+All scenarios use the same image and the same mounted `./data` folder. They
+differ only in environment variables (put them in `.env`, which docker compose
+reads automatically). `SECRET_KEY_BASE` is always required in the container.
 
-```bash
-docker compose up -d          # Postgres + MinIO (+ auto-creates the bucket)
-bundle install
-cp .env.example .env          # fill in keys (see "full flow" below)
+### 1. Anthropic (your key) + local Whisper — recommended
 
-bin/rails db:prepare          # create + migrate (primary + queue DBs)
-bin/rails db:seed             # seed credit packs (idempotent)
+Best quality. The manual is written by Claude using your own API key; audio is
+transcribed locally so it never leaves the machine.
 
-bin/dev                       # command-up: web server + Solid Queue worker
+```ini
+# .env
+SECRET_KEY_BASE=<openssl rand -hex 32>
+ANTHROPIC_API_KEY=sk-ant-...
+# Transcription defaults to local whisper; ensure WHISPER_BIN resolves in-container.
+# The image ships ffmpeg + weasyprint; install a whisper CLI in your own image
+# layer if you want local STT, or use a hosted option below.
+TRANSCRIPTION_PROVIDER=whisper
 ```
 
-`bin/dev` is the single command-up for the dev environment — it runs Puma and
-the Solid Queue worker together (via overmind/foreman if installed, otherwise
-directly) and tears both down on Ctrl-C. Development uses a dedicated
-`scribe_development_queue` database for jobs, matching production. `.env` is
-loaded automatically in development (via `dotenv-rails`); it is **not** loaded in
-test, so the suite stays offline.
+```bash
+docker compose up --build      # → http://localhost:3000
+```
 
-Install the system tools (macOS): `brew install ffmpeg weasyprint`.
-Ubuntu: `sudo apt-get install -y ffmpeg weasyprint`.
+### 2. Fully local — a llama model + Whisper (nothing leaves the machine)
 
-### Testing the whole flow locally (real transcription + manual)
+Run a model server on the host (e.g. [Ollama](https://ollama.com)) with a
+**vision-capable** model, then point Scribe at it. No Anthropic key needed.
 
-The pipeline runs **offline by default** (stub STT + fake Claude), so you can
-demo end-to-end with zero keys or spend. To exercise the real services:
+```bash
+# On the host:
+ollama serve
+ollama pull llama3.2-vision
+```
 
-1. `docker compose up -d` — Postgres + MinIO with the `scribe` bucket.
-2. In `.env`, set `STORAGE_ADAPTER=s3` (MinIO creds are pre-filled) so uploads,
-   frames and exports go through signed URLs.
-3. Set `ANTHROPIC_API_KEY` for manual generation.
-4. Choose a real transcription provider (required for actual transcripts):
-   - `TRANSCRIPTION_PROVIDER=deepgram` + `DEEPGRAM_API_KEY`, or
-   - `TRANSCRIPTION_PROVIDER=openai` + `OPENAI_API_KEY` (model via
-     `OPENAI_TRANSCRIBE_MODEL`, default `whisper-1`), or
-   - `TRANSCRIPTION_PROVIDER=whisper` + `WHISPER_BIN` pointing at a local
-     faster-whisper / whisper-ctranslate2 CLI that emits JSON segments.
-5. `bin/dev`, open http://localhost:3000, sign up, buy/seed credits, record.
+```ini
+# .env
+SECRET_KEY_BASE=<openssl rand -hex 32>
+LLM_PROVIDER=local
+LLM_BASE_URL=http://host.docker.internal:11434/v1   # reach the host from the container
+LLM_MODEL=llama3.2-vision
+TRANSCRIPTION_PROVIDER=whisper
+```
 
-MinIO console: http://localhost:9001 (`minioadmin` / `minioadmin`).
+```bash
+docker compose up --build
+```
 
-Then open http://localhost:3000, sign up, and record. With no
-`ANTHROPIC_API_KEY` and `TRANSCRIPTION_PROVIDER=stub`, the full pipeline runs
-**offline** using deterministic stubs — no external spend.
+`docker-compose.yml` already maps `host.docker.internal` to the host gateway, so
+this works on Linux too. Any OpenAI-compatible server works — llama.cpp
+(`http://host.docker.internal:8080/v1`), LM Studio (`:1234/v1`), etc.
+
+### 3. Hosted transcription (Deepgram or OpenAI)
+
+If you don't want to run Whisper, use a hosted STT provider with your own key.
+Combine with either LLM option above.
+
+```ini
+# .env (Deepgram)
+SECRET_KEY_BASE=<openssl rand -hex 32>
+ANTHROPIC_API_KEY=sk-ant-...
+TRANSCRIPTION_PROVIDER=deepgram
+DEEPGRAM_API_KEY=...
+```
+
+```ini
+# .env (OpenAI Whisper API)
+TRANSCRIPTION_PROVIDER=openai
+OPENAI_API_KEY=...
+OPENAI_TRANSCRIBE_MODEL=whisper-1
+```
+
+### 4. Offline demo (no keys at all)
+
+Leave `ANTHROPIC_API_KEY` unset and use the stub transcriber. The pipeline runs
+end-to-end with deterministic placeholders — handy for trying the UI.
+
+```ini
+# .env
+SECRET_KEY_BASE=<openssl rand -hex 32>
+LLM_PROVIDER=fake
+TRANSCRIPTION_PROVIDER=stub
+```
+
+### 5. CLI — process an existing recording without the browser
+
+Use the running container to turn a video you already have into a manual. Drop
+the file under `./data` (so the container can see it), then run the rake task:
+
+```bash
+cp ~/Desktop/demo.mp4 ./data/demo.mp4
+docker compose exec scribe bin/rails "scribe:ingest[/data/demo.mp4]"
+```
+
+It runs the whole pipeline inline and prints where the result files were written
+(e.g. `/data/storage/recordings/3/results/`). List recordings with:
+
+```bash
+docker compose exec scribe bin/rails scribe:list
+```
+
+You can also run a **one-shot container** (no long-running server) for pure CLI
+use:
+
+```bash
+docker run --rm -v "$PWD/data:/data" \
+  -e SECRET_KEY_BASE=$(openssl rand -hex 32) \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  scribe bin/rails "scribe:ingest[/data/demo.mp4]"
+```
+
+### 6. Plain `docker run` (no compose)
+
+```bash
+docker build -t scribe .
+docker run -p 3000:80 -v "$PWD/data:/data" \
+  -e SECRET_KEY_BASE=$(openssl rand -hex 32) \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  scribe
+```
+
+### Behind HTTPS
+
+The container serves plain HTTP by default (for `localhost`). If you put it
+behind an HTTPS reverse proxy, set `FORCE_SSL=true` to enable HSTS + secure
+cookies.
+
+---
+
+## What's in the data folder
+
+Everything persistent lives under `SCRIBE_DATA_DIR` (`/data` in Docker, `./data`
+locally). Mount or copy this one folder to move/back up all your data:
+
+```
+data/
+├── db/
+│   ├── scribe.sqlite3          # primary database
+│   ├── scribe_queue.sqlite3    # Solid Queue (jobs)
+│   └── …                       # cache/cable (production)
+├── tus/                        # in-flight resumable uploads
+└── storage/
+    └── recordings/<id>/
+        ├── source.webm         # the uploaded/recorded video
+        ├── frames/…            # extracted screenshots
+        └── results/
+            ├── manual.json     # structured manual
+            ├── manual.md       # Markdown (references images/)
+            ├── manual.html     # self-contained HTML
+            ├── manual.pdf      # rendered PDF (if WeasyPrint present)
+            ├── images/step-NN.png
+            └── transcript.json
+```
+
+Result files are written automatically when a manual completes. Set
+`WRITE_RESULT_FILES=false` to keep results only in the database.
+
+---
+
+## Local development (without Docker)
+
+System deps: Ruby (see `.ruby-version`), `ffmpeg`, and `weasyprint` (PDF export).
+SQLite is bundled with the `sqlite3` gem — no database server to install.
+
+```bash
+bundle install
+cp .env.example .env          # optional: add your keys
+
+bin/rails db:prepare          # create + migrate the SQLite DBs under ./data
+bin/dev                       # web server + Solid Queue worker (Ctrl-C stops both)
+```
+
+Open http://localhost:3000. `.env` is loaded automatically in development (via
+`dotenv-rails`); it is **not** loaded in test, so the suite stays offline.
+
+Install the system tools — macOS: `brew install ffmpeg weasyprint`;
+Ubuntu: `sudo apt-get install -y ffmpeg weasyprint`. For local transcription,
+install a faster-whisper / whisper-ctranslate2 CLI that emits JSON segments and
+set `WHISPER_BIN` (default `faster-whisper`).
+
+### Using an existing recording
+
+- **Web:** on the record page there's an *"Or use a recording you already have"*
+  form — pick a `.webm`/`.mp4`/`.mov`/`.mkv` and it runs the same pipeline.
+- **CLI:** `bin/rails "scribe:ingest[/path/to/video.mp4]"` (runs inline and
+  prints the result folder). Append `,async` to enqueue instead:
+  `bin/rails "scribe:ingest[/path/to/video.mp4,async]"`.
 
 ### Running checks
 
 ```bash
-bin/rails test                # full suite
+bin/rails test                # full suite (offline; ffmpeg needed for the e2e pipeline test)
 bin/rubocop                   # style (rails-omakase)
 bin/brakeman -i config/brakeman.ignore   # security scan
 ```
 
-CI (`.github/workflows/ci.yml`) runs all three with a Postgres service and
-ffmpeg installed. A SessionStart hook (`bin/web-setup`) provisions the same for
-Claude Code web sessions.
+CI (`.github/workflows/ci.yml`) runs all three with ffmpeg + WeasyPrint
+installed.
+
+---
+
+## Configuration reference
+
+All config comes from ENV (see `.env.example`). Highlights:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SCRIBE_DATA_DIR` | `./data` (`/data` in Docker) | Where the DB, recordings and manuals live |
+| `SECRET_KEY_BASE` | — (required in production/Docker) | Signs download URLs; generate with `openssl rand -hex 32` |
+| `LLM_PROVIDER` | `anthropic` if key set, else `fake` | `anthropic` \| `local` \| `fake` |
+| `ANTHROPIC_API_KEY` | — | Your Anthropic key (provider `anthropic`) |
+| `ANTHROPIC_MANUAL_MODEL` | `claude-sonnet-4-6` | Model for manual generation |
+| `LLM_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible endpoint (provider `local`) |
+| `LLM_MODEL` | `llama3.2-vision` | Local model id (vision-capable) |
+| `LLM_API_KEY` | — | Optional bearer token for the local server |
+| `TRANSCRIPTION_PROVIDER` | `whisper` (`stub` in tests) | `whisper` \| `deepgram` \| `openai` \| `stub` |
+| `WHISPER_BIN` | `faster-whisper` | Local STT CLI emitting JSON segments |
+| `DEEPGRAM_API_KEY` / `OPENAI_API_KEY` | — | Hosted STT keys |
+| `WRITE_RESULT_FILES` | `true` | Write manual.json/md/html/pdf to disk |
+| `RAW_VIDEO_RETENTION_DAYS` | `0` (keep forever) | Auto-purge raw videos older than N days |
+| `WEASYPRINT_CMD` | `weasyprint` | PDF renderer command |
+| `FORCE_SSL` | `false` | HSTS + secure cookies (set behind HTTPS proxy) |
 
 ---
 
 ## Key modules
 
-- `app/services/credits/` — the **ledger** (`Ledger.hold!/settle!/void!`),
-  metering (`Meter`). Balance is always derived: `SUM(amount) WHERE state IN
-  ('settled','pending')`. All credit mutations go through here.
-- `app/services/transcription/` — `Base.build` selects the provider; `Stub` is
-  the offline default; `Deepgram`, `Openai` (hosted, real STT) and `Whisper`
-  (local CLI) are real implementations. Each separates the HTTP call (`#fetch`)
-  from response mapping (`#parse`) so mapping is unit-tested offline.
-- `app/services/media/` — `Probe` (ffprobe), `AudioExtractor`, `FrameExtractor`
-  (scene detect + periodic fallback + on-demand seeks + thumbnails).
-- `app/services/manual_generation/` — `ToolSchema` (forced output), `Generator`
-  (prompt build, chunking, vision images).
+- `app/services/llm.rb` + `app/services/llm/local_client.rb` — provider selection
+  and the OpenAI-compatible **local llama** client (translates to/from the
+  Anthropic message shape).
 - `app/services/anthropic/` — `Client` (HTTP) and `FakeClient` (offline).
+- `app/services/transcription/` — `Base.build` selects the provider; `Whisper`
+  (local CLI, default), `Deepgram`/`Openai` (hosted), and the offline `Stub`.
+- `app/services/recording_ingest.rb` — ingest an existing video (web upload or
+  CLI) and start the pipeline.
+- `app/services/result_files.rb` — write a finished manual out as plain files
+  under the data dir.
+- `app/services/media/` — `Probe` (ffprobe), `AudioExtractor`, `FrameExtractor`,
+  `Editor` (trim).
+- `app/services/manual_generation/` — `ToolSchema` (forced output) + `Generator`
+  (prompt build, chunking, vision images).
+- `app/services/storage.rb` — disk storage facade with signed (HMAC) URLs.
 - `app/services/exporters/` — `Registry` + `Markdown`/`Html`/`Pdf`. **Adding a
   format = one subclass + `Registry.register`.**
 - `app/jobs/` — `TranscribeJob → ExtractFramesJob → GenerateManualJob`, plus
-  `ExportJob` and `PurgeExpiredRecordingsJob` (retention). Shared retry/failure
-  handling in `PipelineStage`: transient errors (network/timeout) auto-retry with
-  backoff; permanent or exhausted failures record `failed_stage` and void the
-  hold. A failed recording can be re-run from its stage via `POST
-  /recordings/:id/retry`.
-- `app/services/recording_purge.rb` — delete a recording's stored objects + rows
-  (`destroy!`) and retention purge of the raw video while keeping the manual
-  (`purge_raw_video!`).
+  `ExportJob` and `PurgeExpiredRecordingsJob`. Shared retry/failure handling in
+  `PipelineStage`.
+- `lib/tasks/scribe.rake` — the `scribe:ingest` / `scribe:list` CLI.
 
 ---
 
-## Decisions (SPEC §17)
+## What changed in the local-first pivot
 
-Defaults were chosen where the SPEC left a fork; each is marked `TODO(decision:)`
-in code so it's greppable. Confirm before hardening.
+Removed, because they don't belong in a tool you run for yourself:
 
-- **Background jobs:** the SPEC defaulted to GoodJob; this build uses **Solid
-  Queue** instead — it's the Rails 8 built-in, equally Postgres-backed (no extra
-  Redis to operate, which was the SPEC's stated reason for GoodJob), so the
-  operational profile matches with one fewer dependency.
-- **STT provider:** offline `stub` by default; Deepgram/whisper ready to swap via
-  `TRANSCRIPTION_PROVIDER`. *(open)*
-- **Auth:** Rails 8 built-in authentication. *(chosen)*
-- **Pricing / `CREDITS_PER_MINUTE`:** flat **1 credit/minute**; seed packs
-  Starter 60 / Pro 300 / Studio 1000 with placeholder prices + Stripe price ids.
-  *(open)*
-- **Export billing:** built-in exports cost **0 credits**; per-format cost is
-  configurable (`Scribe.config.export_credit_costs`). *(default)*
-- **Retention:** raw video kept **30 days** (`RAW_VIDEO_RETENTION_DAYS`), then
-  auto-purged by `PurgeExpiredRecordingsJob` (daily, see `config/recurring.yml`);
-  manuals persist. *(window open for confirmation)*
-- **Metering model:** flat per-minute now; `settle!(actual_amount:)` already
-  accepts token-based actuals without a schema change. *(default)*
+- **Stripe & the credit ledger** — processing is free; there's no metering, no
+  packs, no checkout, no webhooks.
+- **Accounts & login** — a single implicit local user owns everything.
+- **Sentry** — no error reporting leaves the machine.
+- **Postgres & MinIO/S3** — replaced by a single SQLite file and on-disk storage
+  under the mounted data dir.
+
+Added:
+
+- **Local llama LLM** option (`LLM_PROVIDER=local`) alongside Anthropic.
+- **Existing-recording ingest** via web upload and the `scribe:ingest` CLI.
+- **Result files** written to the data folder for every completed manual.
 
 ---
 
-## Status / milestones
+## Security & privacy
 
-| # | Milestone | State |
-|---|-----------|-------|
-| 1 | Scaffold (Rails, Postgres, jobs, storage, auth, Sentry, CI) | ✅ |
-| 2 | Record + resumable upload (Stimulus recorder, tus) | ✅ backend + recorder; playback via signed URLs |
-| 3 | Pipeline + transcription (state machine, audio extract, provider) | ✅ |
-| 4 | Frames + manual (scene frames, Claude alignment, review/edit UI) | ✅ |
-| 5 | Exports (registry + Markdown/HTML/PDF, signed download) | ✅ (PDF via WeasyPrint) |
-| 6 | Credits + Stripe (ledger, packs, Checkout, webhook, 402 gating) | ✅ |
-| 7 | Hardening (retries, failure UI, delete/retention, usage logging) | ✅ — automatic transient-error retries + per-stage manual retry, failure/retry + delete UI, `RecordingPurge` + daily retention job, token-usage logging |
-
-### Tests (SPEC §15)
-
-- `test/models/credit_transaction_test.rb` — ledger math, hold→settle/void, and
-  no double-spend under concurrency.
-- `test/services/exporters_test.rb` — golden Markdown/HTML, PDF render via
-  WeasyPrint, registry behaviour.
-- `test/services/storage_s3_test.rb` — S3/MinIO adapter (stubbed): put/get/
-  delete, presigned-URL shape, SSE toggle.
-- `test/services/transcription_test.rb` — provider selection + Deepgram/OpenAI
-  response mapping (canned payloads) + missing-key guard.
-- `test/integration/stripe_webhook_test.rb` — webhook idempotency (replay → one
-  grant).
-- `test/integration/pipeline_test.rb` — end-to-end with a real short ffmpeg
-  fixture, stubbed STT + Claude; success and failure paths.
-- `test/integration/recordings_flow_test.rb` — `/complete` credit reservation,
-  402 gating, per-user authorization.
-
----
-
-## Security & privacy (SPEC §14)
-
-- All downloads via short-lived **signed URLs** (HMAC for the disk adapter,
-  presigned for S3); no public buckets. S3 objects use SSE.
-- Per-user authorization on every recording/manual/export/frame.
-- Stripe webhook signature verification; Anthropic/STT/Stripe keys are
-  server-side only and never reach the browser.
+- Single-user, local-first: no accounts to manage, no third-party backend.
+- All downloads go through short-lived **signed URLs** (HMAC); the storage folder
+  isn't served directly.
+- Your API keys stay server-side and never reach the browser. With
+  `LLM_PROVIDER=local` + local Whisper, no audio, frames, or text leave the
+  machine at all.
 - `getDisplayMedia` requires HTTPS + a user gesture (enforced by the browser).

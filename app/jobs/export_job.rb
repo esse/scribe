@@ -17,6 +17,6 @@ class ExportJob < ApplicationJob
     export.update!(status: :ready, storage_key: key, file_size: data.bytesize, error_message: nil)
   rescue StandardError => e
     export&.update(status: :failed, error_message: e.message.to_s.truncate(1000))
-    Sentry.capture_exception(e, extra: { export_id: }) if defined?(Sentry) && Sentry.initialized?
+    Rails.logger.error(tag: "export_error", export_id:, message: e.message)
   end
 end

@@ -6,7 +6,7 @@ class CreateTranscripts < ActiveRecord::Migration[8.1]
       t.string :provider
       t.string :language
       t.text :full_text
-      t.jsonb :raw_payload, null: false, default: {}
+      t.json :raw_payload, null: false, default: {}
       t.integer :status, null: false, default: 0
 
       t.timestamps

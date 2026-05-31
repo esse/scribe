@@ -8,16 +8,10 @@ module ManualGeneration
   class Generator
     Result = Struct.new(:title, :summary, :model, :usage, :steps, keyword_init: true)
 
-    def initialize(recording:, client: nil, model: Scribe.config.manual_model)
+    def initialize(recording:, client: nil, model: nil)
       @recording = recording
-      @client = client || self.class.default_client
-      @model = model
-    end
-
-    # Use the real client when an API key is configured, otherwise the offline
-    # fake so dev/CI never spend (mirrors the STT stub default).
-    def self.default_client
-      Scribe.config.anthropic_api_key.present? ? Anthropic::Client.new : Anthropic::FakeClient.new
+      @client = client || LLM.client
+      @model = model || LLM.model
     end
 
     def call

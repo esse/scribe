@@ -1,28 +1,17 @@
-# Object-storage facade (SPEC §4, §5). All recordings, frames and exports live
-# behind this so downloads are always served via short-lived signed URLs and the
-# rest of the app never talks to S3 directly.
-#
-# Two adapters:
-#   * Disk  — dev/test/CI. Files under config.storage_root; "signed URLs" are
-#             app routes guarded by a short-lived HMAC token.
-#   * S3    — production (Cloudflare R2 / MinIO / S3) via aws-sdk-s3 presigned URLs.
+# Object-storage facade. Local-first: everything lives on disk under the data
+# dir (config.storage_root), so the whole store is just files in a folder you
+# can mount into a container. Downloads are still served via short-lived signed
+# (HMAC) app URLs so blobs aren't world-readable through the web server.
 module Storage
   module_function
 
   def adapter
-    @adapter ||= build_adapter
+    @adapter ||= DiskAdapter.new
   end
 
   # Reset memoization (used by tests that flip ENV).
   def reset!
     @adapter = nil
-  end
-
-  def build_adapter
-    case Scribe.config.storage_adapter
-    when "s3" then S3Adapter.new
-    else DiskAdapter.new
-    end
   end
 
   def put(key, io_or_path, content_type: "application/octet-stream")
@@ -45,11 +34,10 @@ module Storage
     adapter.exists?(key)
   end
 
-  # Local filesystem path for a key, or nil when the backing store isn't disk.
-  # Lets the blob endpoint stream large files (with HTTP Range support) instead
-  # of buffering them in memory.
+  # Local filesystem path for a key. Lets the blob endpoint stream large files
+  # (with HTTP Range support) instead of buffering them in memory.
   def local_path(key)
-    adapter.respond_to?(:local_path) ? adapter.local_path(key) : nil
+    adapter.local_path(key)
   end
 
   # Short-lived signed download URL (SPEC §5, §14).
@@ -100,78 +88,6 @@ module Storage
       params[:disposition] = disposition if disposition
       params[:filename] = filename if filename
       "/storage/blob?#{params.to_query}"
-    end
-  end
-
-  # --- S3 adapter ---------------------------------------------------------
-  class S3Adapter
-    # client/bucket overrides exist so tests can inject a stubbed AWS client.
-    def initialize(client: nil, bucket: nil)
-      @client = client
-      @bucket = bucket
-    end
-
-    def client
-      @client ||= begin
-        require "aws-sdk-s3"
-        opts = {
-          region: Scribe.config.s3_region,
-          access_key_id: Scribe.config.s3_access_key_id,
-          secret_access_key: Scribe.config.s3_secret_access_key
-        }
-        # R2 / MinIO need a custom endpoint + path-style addressing.
-        if Scribe.config.s3_endpoint.present?
-          opts[:endpoint] = Scribe.config.s3_endpoint
-          opts[:force_path_style] = true
-        end
-        Aws::S3::Client.new(opts)
-      end
-    end
-
-    def bucket = @bucket || Scribe.config.storage_bucket
-
-    def put(key, io_or_path, content_type:)
-      body = io_or_path.respond_to?(:read) ? io_or_path : File.open(io_or_path, "rb")
-      params = { bucket:, key:, body:, content_type: }
-      # Encrypt at rest in real S3/R2 (SPEC §14). Disable for MinIO dev where
-      # SSE-S3 needs extra setup: set S3_SSE="" to skip.
-      sse = Scribe.config.s3_sse
-      params[:server_side_encryption] = sse if sse.present?
-      client.put_object(**params)
-      key
-    ensure
-      body.close if body && !io_or_path.respond_to?(:read)
-    end
-
-    def get(key)
-      client.get_object(bucket:, key:).body.read
-    end
-
-    def download_to(key, path)
-      FileUtils.mkdir_p(File.dirname(path))
-      client.get_object(response_target: path.to_s, bucket:, key:)
-      path
-    end
-
-    def delete(key)
-      client.delete_object(bucket:, key:)
-    end
-
-    def exists?(key)
-      client.head_object(bucket:, key:)
-      true
-    rescue Aws::S3::Errors::NotFound
-      false
-    end
-
-    def signed_url(key, expires_in:, disposition:, filename:)
-      params = { bucket:, key:, expires_in: expires_in.to_i }
-      if disposition || filename
-        cd = +"#{disposition || 'attachment'}"
-        cd << "; filename=\"#{filename}\"" if filename
-        params[:response_content_disposition] = cd
-      end
-      Aws::S3::Presigner.new(client:).presigned_url(:get_object, **params)
     end
   end
 
