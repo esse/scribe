@@ -1,40 +1,42 @@
 module Transcription
-  # Hosted STT with word/segment timestamps (SPEC §4, §9.3). Default real provider.
-  # Sends the extracted mono 16 kHz audio and maps Deepgram's response onto the
-  # provider contract.
+  # Hosted STT with word/segment timestamps (SPEC §4, §9.3). Sends the extracted
+  # mono 16 kHz FLAC and maps Deepgram's response onto the provider contract.
+  #
+  # The HTTP call (#fetch) is separated from response mapping (#parse) so the
+  # mapping can be unit-tested offline against canned payloads.
   class Deepgram < Base
-    ENDPOINT = "https://api.deepgram.com/v1/listen"
+    ENDPOINT = "https://api.deepgram.com/v1/listen".freeze
 
     def initialize(api_key: Scribe.config.deepgram_api_key)
       @api_key = api_key
     end
 
     def transcribe(audio_path:)
-      raise "DEEPGRAM_API_KEY not set" if @api_key.blank?
+      raise ConfigurationError, "DEEPGRAM_API_KEY not set" if @api_key.blank?
 
-      body = File.binread(audio_path)
+      parse(fetch(audio_path))
+    end
+
+    # POST the audio and return the parsed JSON body (raises on non-200).
+    def fetch(audio_path)
       uri = URI(ENDPOINT)
       uri.query = URI.encode_www_form(
-        model: "nova-2",
-        smart_format: true,
-        punctuate: true,
-        paragraphs: true,
-        utterances: true
+        model: "nova-2", smart_format: true, punctuate: true,
+        paragraphs: true, utterances: true
       )
 
       req = Net::HTTP::Post.new(uri)
       req["Authorization"] = "Token #{@api_key}"
       req["Content-Type"] = "audio/flac"
-      req.body = body
+      req.body = File.binread(audio_path)
 
       res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, read_timeout: 600) { |h| h.request(req) }
-      raise "Deepgram error #{res.code}: #{res.body}" unless res.code.to_i == 200
+      raise TranscriptionError, "Deepgram error #{res.code}: #{res.body}" unless res.code.to_i == 200
 
-      parse(JSON.parse(res.body))
+      JSON.parse(res.body)
     end
 
-    private
-
+    # Map a Deepgram response hash onto { language:, full_text:, segments:, raw: }.
     def parse(payload)
       channel = payload.dig("results", "channels", 0) || {}
       alt = channel.dig("alternatives", 0) || {}

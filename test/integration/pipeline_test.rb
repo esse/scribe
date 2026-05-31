@@ -67,22 +67,9 @@ class PipelineTest < ActiveSupport::TestCase
 
   private
 
-  # Build a tiny real video once and cache the bytes for the suite.
+  # A small committed fixture (2s, 160x120). Read rather than generated at runtime
+  # so parallel test workers don't all spawn ffmpeg encodes at once.
   def fixture_video_bytes
-    @@fixture_video_bytes ||= begin
-      Dir.mktmpdir do |dir|
-        out = File.join(dir, "fixture.mp4")
-        cmd = [
-          Media.ffmpeg_bin, "-y",
-          "-f", "lavfi", "-i", "testsrc=duration=4:size=320x240:rate=10",
-          "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
-          "-pix_fmt", "yuv420p", "-shortest", out
-        ]
-        _o, err, status = Open3.capture3(*cmd)
-        raise "fixture ffmpeg failed: #{err}" unless status.success?
-
-        File.binread(out)
-      end
-    end
+    File.binread(Rails.root.join("test/fixtures/files/sample_recording.mp4"))
   end
 end

@@ -62,17 +62,6 @@ class RecordingsFlowTest < ActionDispatch::IntegrationTest
   end
 
   def self.fixture_video
-    @fixture_video ||= Dir.mktmpdir do |dir|
-      out = File.join(dir, "f.mp4")
-      _o, err, st = Open3.capture3(
-        Media.ffmpeg_bin, "-y",
-        "-f", "lavfi", "-i", "testsrc=duration=2:size=160x120:rate=10",
-        "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
-        "-pix_fmt", "yuv420p", "-shortest", out
-      )
-      raise "ffmpeg failed: #{err}" unless st.success?
-
-      File.binread(out)
-    end
+    @fixture_video ||= File.binread(Rails.root.join("test/fixtures/files/sample_recording.mp4"))
   end
 end
