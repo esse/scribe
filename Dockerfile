@@ -24,12 +24,23 @@ FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
 WORKDIR /rails
 
 # Install base packages. The media pipeline needs ffmpeg (scene detection, audio
-# extraction) and WeasyPrint (HTML→PDF export); sqlite is the datastore.
+# extraction) and WeasyPrint (HTML→PDF export); sqlite is the datastore. Python +
+# faster-whisper provide fully local, offline speech-to-text (libgomp1 is needed
+# by ctranslate2's CPU backend).
 RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y \
-      curl libjemalloc2 libvips libsqlite3-0 ffmpeg weasyprint && \
+      curl libjemalloc2 libvips libsqlite3-0 ffmpeg weasyprint \
+      python3 python3-pip libgomp1 && \
+    pip3 install --no-cache-dir --break-system-packages faster-whisper && \
     ln -s /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
+# Pre-download the Whisper model so transcription is fully offline at runtime
+# (nothing is fetched on first use). World-readable so the non-root app user can
+# load it. Override the size at build time with --build-arg WHISPER_MODEL=small.
+ARG WHISPER_MODEL=base
+RUN python3 -c "from faster_whisper import WhisperModel; WhisperModel('${WHISPER_MODEL}', device='cpu', compute_type='int8', download_root='/opt/whisper-models')" && \
+    chmod -R a+rX /opt/whisper-models
 
 # Local-first runtime defaults: production env, the SQLite/recordings data dir at
 # the mount point, and Solid Queue running inside Puma so a single container does
@@ -40,7 +51,11 @@ ENV RAILS_ENV="production" \
     BUNDLE_WITHOUT="development" \
     LD_PRELOAD="/usr/local/lib/libjemalloc.so" \
     SCRIBE_DATA_DIR="/data" \
-    SOLID_QUEUE_IN_PUMA="1"
+    SOLID_QUEUE_IN_PUMA="1" \
+    TRANSCRIPTION_PROVIDER="whisper" \
+    WHISPER_BIN="/rails/script/faster-whisper" \
+    WHISPER_MODEL="${WHISPER_MODEL}" \
+    WHISPER_MODEL_DIR="/opt/whisper-models"
 
 # Throw-away build stage to reduce size of final image
 FROM base AS build

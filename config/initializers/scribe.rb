@@ -19,19 +19,19 @@ module Scribe
       #               (Ollama, llama.cpp server, LM Studio…), so nothing leaves
       #               the machine.
       # "fake"      — offline deterministic stub (dev/CI; no spend, no model).
-      c.llm_provider = ENV.fetch("LLM_PROVIDER") { default_llm_provider }
+      c.llm_provider = ENV["LLM_PROVIDER"].presence || default_llm_provider
 
       # Anthropic (hosted Claude).
       c.anthropic_api_key   = ENV["ANTHROPIC_API_KEY"]
       c.anthropic_base_url  = ENV.fetch("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
-      c.manual_model        = ENV.fetch("ANTHROPIC_MANUAL_MODEL", "claude-sonnet-4-6")
-      c.caption_model       = ENV.fetch("ANTHROPIC_CAPTION_MODEL", "claude-haiku-4-5-20251001")
+      c.manual_model        = ENV["ANTHROPIC_MANUAL_MODEL"].presence || "claude-sonnet-4-6"
+      c.caption_model       = ENV["ANTHROPIC_CAPTION_MODEL"].presence || "claude-haiku-4-5-20251001"
 
       # Local llama model over an OpenAI-compatible endpoint. Ollama's default is
       # http://localhost:11434/v1; pick a vision-capable model (e.g. llava,
       # llama3.2-vision, qwen2.5-vl) so it can read the screenshots.
-      c.llm_base_url   = ENV.fetch("LLM_BASE_URL", "http://localhost:11434/v1")
-      c.llm_model      = ENV.fetch("LLM_MODEL", "llama3.2-vision")
+      c.llm_base_url   = ENV["LLM_BASE_URL"].presence || "http://localhost:11434/v1"
+      c.llm_model      = ENV["LLM_MODEL"].presence || "llama3.2-vision"
       c.llm_api_key    = ENV["LLM_API_KEY"] # usually unset for local servers
 
       c.max_images_per_call = ENV.fetch("CLAUDE_MAX_IMAGES", 25).to_i
@@ -41,8 +41,8 @@ module Scribe
       # Defaults to the local Whisper CLI so audio never leaves the machine. Set
       # "deepgram"/"openai" (+ key) to use a hosted provider, or "stub" offline.
       # Tests stay on the offline stub so the suite never shells out to whisper.
-      c.transcription_provider  = ENV.fetch("TRANSCRIPTION_PROVIDER") { Rails.env.test? ? "stub" : "whisper" }
-      c.whisper_bin             = ENV.fetch("WHISPER_BIN", "faster-whisper")
+      c.transcription_provider  = ENV["TRANSCRIPTION_PROVIDER"].presence || (Rails.env.test? ? "stub" : "whisper")
+      c.whisper_bin             = ENV["WHISPER_BIN"].presence || "faster-whisper"
       c.deepgram_api_key        = ENV["DEEPGRAM_API_KEY"]
       c.openai_api_key          = ENV["OPENAI_API_KEY"]
       c.openai_transcribe_model = ENV.fetch("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
