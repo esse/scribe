@@ -10,5 +10,13 @@ module LLM
     )
       super
     end
+
+    private
+
+    # OpenAI's current hosted models (GPT-5 family, o-series) reject `max_tokens`
+    # and require `max_completion_tokens`.
+    def token_limit_param
+      :max_completion_tokens
+    end
   end
 end

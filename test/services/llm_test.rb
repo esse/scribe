@@ -33,6 +33,40 @@ class LLMTest < ActiveSupport::TestCase
     end
   end
 
+  # Same stubbing for the OpenAI client so we can inspect the request it builds.
+  class StubbedOpenaiClient < LLM::OpenaiClient
+    attr_reader :sent_body
+
+    def initialize(canned)
+      super()
+      @canned = canned
+    end
+
+    private
+
+    def post(_path, body)
+      @sent_body = body
+      @canned
+    end
+  end
+
+  # OpenAI's current hosted models reject `max_tokens`; local OpenAI-compatible
+  # servers only understand `max_tokens`. Each client must send the key its
+  # endpoint accepts, or manual generation fails with a 400.
+  test "sends max_tokens to local servers and max_completion_tokens to OpenAI" do
+    canned = { "usage" => {}, "choices" => [ { "message" => { "content" => "{}" } } ] }
+
+    local = StubbedLocalClient.new(canned)
+    local.create_message(model: "m", system: "s", messages: [], max_tokens: 1234)
+    assert_equal 1234, local.sent_body[:max_tokens]
+    assert_nil local.sent_body[:max_completion_tokens]
+
+    openai = StubbedOpenaiClient.new(canned)
+    openai.create_message(model: "m", system: "s", messages: [], max_tokens: 1234)
+    assert_equal 1234, openai.sent_body[:max_completion_tokens]
+    assert_nil openai.sent_body[:max_tokens]
+  end
+
   test "translates an OpenAI tool call into the Anthropic tool_use shape" do
     canned = {
       "model" => "llama3.2-vision",

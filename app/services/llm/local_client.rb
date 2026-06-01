@@ -1,3 +1,6 @@
+
+require "net/http"
+require "json"
 module LLM
   # Talks to a local llama model exposed over an OpenAI-compatible chat API
   # (Ollama at http://localhost:11434/v1, llama.cpp server, LM Studio, …). It
@@ -22,7 +25,7 @@ module LLM
     def create_message(model:, system:, messages:, tools: nil, tool_choice: nil, max_tokens: 4096)
       body = {
         model: model || @default_model,
-        max_tokens:,
+        token_limit_param => max_tokens,
         messages: openai_messages(system, messages)
       }
       if tools
@@ -35,6 +38,14 @@ module LLM
     end
 
     private
+
+    # The request key for the output-token cap. Local OpenAI-compatible servers
+    # (Ollama, llama.cpp, LM Studio) expect the original `max_tokens`; OpenAI's
+    # hosted API requires `max_completion_tokens` for its current models
+    # (GPT-5 family, o-series), so OpenaiClient overrides this.
+    def token_limit_param
+      :max_tokens
+    end
 
     # Anthropic content blocks → OpenAI message content. System prompt becomes a
     # leading system message; image blocks become data: URLs.
