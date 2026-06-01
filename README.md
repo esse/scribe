@@ -31,7 +31,7 @@ or a local model server (see [scenarios](#docker-usage--all-scenarios)).
 
 ```bash
 # 1. Create your config from the template (gitignored):
-curl -O https://raw.githubusercontent.com/<this-repo>/main/.env.example
+curl -O https://raw.githubusercontent.com/esse/scribe/main/.env.example
 mv .env.example .env
 
 # 2. Edit .env and set at least:
