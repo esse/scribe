@@ -1,8 +1,8 @@
 #!/bin/bash -e
 
-# If running the rails server then create or migrate existing database
-if [ "${@: -2:1}" == "./bin/rails" ] && [ "${@: -1:1}" == "server" ]; then
-  ./bin/rails db:prepare
-fi
+# Create or migrate the database on every boot. Local-first means the SQLite DB
+# lives in the mounted data dir, so any entrypoint command (server, rake tasks
+# like scribe:ingest, console) must run against an up-to-date schema.
+./bin/rails db:prepare
 
 exec "${@}"
