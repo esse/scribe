@@ -102,4 +102,15 @@ class TranscriptionTest < ActiveSupport::TestCase
     assert_equal "hi", result[:full_text]
     assert_equal 1, result[:segments].size
   end
+
+  # --- response_format depends on the model ---------------------------------
+  test "openai requests verbose_json with segments for whisper-1" do
+    provider = Transcription::Openai.new(api_key: "k", model: "whisper-1")
+    assert provider.segment_timestamps_supported?
+  end
+
+  test "openai requests plain json for gpt-4o-transcribe models" do
+    provider = Transcription::Openai.new(api_key: "k", model: "gpt-4o-transcribe")
+    refute provider.segment_timestamps_supported?
+  end
 end

@@ -1,3 +1,6 @@
+require "net/http"
+require "json"
+
 module Transcription
   # Hosted STT via OpenAI's audio transcription API (SPEC §4, §9.3). Uploads the
   # extracted FLAC as multipart/form-data and requests verbose JSON so we get
@@ -23,20 +26,31 @@ module Transcription
       uri = URI(ENDPOINT)
       req = Net::HTTP::Post.new(uri)
       req["Authorization"] = "Bearer #{@api_key}"
-      req.set_form(
-        [
-          [ "file", File.open(audio_path, "rb"), { filename: File.basename(audio_path), content_type: "audio/flac" } ],
-          [ "model", @model ],
-          [ "response_format", "verbose_json" ],
-          [ "timestamp_granularities[]", "segment" ]
-        ],
-        "multipart/form-data"
-      )
+
+      form = [
+        [ "file", File.open(audio_path, "rb"), { filename: File.basename(audio_path), content_type: "audio/flac" } ],
+        [ "model", @model ]
+      ]
+      # Only whisper-1 supports verbose_json with segment-level timestamps. The
+      # gpt-4o-transcribe family rejects it and accepts only json/text, so we
+      # request plain json there and let #parse fall back to a single segment.
+      if segment_timestamps_supported?
+        form << [ "response_format", "verbose_json" ]
+        form << [ "timestamp_granularities[]", "segment" ]
+      else
+        form << [ "response_format", "json" ]
+      end
+      req.set_form(form, "multipart/form-data")
 
       res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, read_timeout: 600) { |h| h.request(req) }
       raise TranscriptionError, "OpenAI error #{res.code}: #{res.body}" unless res.code.to_i == 200
 
       JSON.parse(res.body)
+    end
+
+    # whisper-1 is the only OpenAI model that returns segment-level timestamps.
+    def segment_timestamps_supported?
+      @model.to_s.include?("whisper")
     end
 
     # Map an OpenAI verbose_json response onto the provider contract. Falls back
