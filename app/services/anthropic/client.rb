@@ -1,3 +1,5 @@
+require "net/http"
+require "json"
 module Anthropic
   # Minimal HTTP client for the Messages API (SPEC §4 allows the official SDK or
   # plain HTTP; plain HTTP keeps the dependency surface small and tests offline).

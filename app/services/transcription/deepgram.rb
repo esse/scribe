@@ -1,3 +1,6 @@
+require "net/http"
+require "json"
+
 module Transcription
   # Hosted STT with word/segment timestamps (SPEC §4, §9.3). Sends the extracted
   # mono 16 kHz FLAC and maps Deepgram's response onto the provider contract.
