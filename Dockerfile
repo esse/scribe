@@ -1,18 +1,20 @@
 # syntax=docker/dockerfile:1
 # check=error=true
 
-# Local-first image. Build once, then run with your data folder mounted and your
-# own API key(s) — everything (SQLite DB, recordings, generated manuals) stays in
-# the mounted folder:
+# Local-first image. Run with your data folder mounted and your config in a .env
+# file — everything (SQLite DB, recordings, generated manuals) stays in the
+# mounted folder:
 #
-#   docker build -t scribe .
-#   docker run -p 3000:80 -v "$PWD/data:/data" \
-#     -e SECRET_KEY_BASE=$(openssl rand -hex 32) \
-#     -e ANTHROPIC_API_KEY=sk-ant-... \
-#     scribe
+#   cp .env.example .env   # then set SECRET_KEY_BASE and your API key(s)
+#   docker run -p 3000:80 -v "$PWD/data:/data" --env-file=.env essepl/scribe:latest
 #
-# Or point it at a local llama model instead of Anthropic:
-#   -e LLM_PROVIDER=local -e LLM_BASE_URL=http://host.docker.internal:11434/v1 -e LLM_MODEL=llama3.2-vision
+# Build from source instead of pulling:  docker build -t essepl/scribe:latest .
+#
+# Or point it at a local llama model instead of Anthropic (in .env):
+#   LLM_PROVIDER=local
+#   LLM_BASE_URL=http://host.docker.internal:11434/v1
+#   LLM_MODEL=llama3.2-vision
+# (add `--add-host=host.docker.internal:host-gateway` to the run command on Linux)
 
 # For a containerized dev environment, see Dev Containers: https://guides.rubyonrails.org/getting_started_with_devcontainer.html
 

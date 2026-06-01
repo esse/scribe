@@ -30,19 +30,27 @@ The fastest way to run Scribe. You need Docker and one of: an Anthropic API key,
 or a local model server (see [scenarios](#docker-usage--all-scenarios)).
 
 ```bash
-git clone <this-repo> scribe && cd scribe
+# 1. Create your config from the template (gitignored):
+curl -O https://raw.githubusercontent.com/<this-repo>/main/.env.example
+mv .env.example .env
 
-# One-time secret so signed URLs survive restarts, plus your own key:
-cat > .env <<EOF
-SECRET_KEY_BASE=$(openssl rand -hex 32)
-ANTHROPIC_API_KEY=sk-ant-...
-EOF
+# 2. Edit .env and set at least:
+#      SECRET_KEY_BASE=...   # one-time secret so signed URLs survive restarts;
+#                            #   generate with:  openssl rand -hex 32
+#      ANTHROPIC_API_KEY=sk-ant-...    # your own key (or use a local model)
 
-docker compose up --build        # → http://localhost:3000
+# 3. Run it — data persists in ./data on the host (mounted at /data):
+docker run -p 3000:80 -v "$PWD/data:/data" --env-file=.env essepl/scribe:latest
+# → http://localhost:3000
 ```
 
-Your data lands in `./data` on the host (mounted at `/data` in the container).
-Stop with `Ctrl-C`; your recordings and manuals persist in `./data`.
+All configuration is passed with `--env-file=.env`; only the keys you actually
+set override the image's local-first defaults. Stop with `Ctrl-C`; your
+recordings and manuals persist in `./data` and survive restarts and upgrades.
+
+> **Build from source instead of pulling?** `docker build -t essepl/scribe:latest .`
+> then use the same `docker run` command. (Substitute your own tag if you prefer,
+> e.g. `-t scribe` + `docker run … scribe`.)
 
 > The pipeline runs **offline by default** (a deterministic stub transcriber and
 > a fake LLM), so even with *no* keys you can click through the whole flow with
@@ -110,9 +118,15 @@ response shape, so the pipeline doesn't care which one ran.
 
 ## Docker usage — all scenarios
 
-All scenarios use the same image and the same mounted `./data` folder. They
-differ only in environment variables (put them in `.env`, which docker compose
-reads automatically). `SECRET_KEY_BASE` is always required in the container.
+All scenarios use the same image (`essepl/scribe:latest`) and the same mounted
+`./data` folder. They differ only in **environment variables** — put them in
+`.env` and pass it with `--env-file=.env`. `SECRET_KEY_BASE` is always required.
+
+The run command is identical every time; only the contents of `.env` change:
+
+```bash
+docker run -p 3000:80 -v "$PWD/data:/data" --env-file=.env essepl/scribe:latest
+```
 
 ### 1. Anthropic (your key) + local Whisper — recommended
 
@@ -127,18 +141,19 @@ ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ```bash
-docker compose up --build      # → http://localhost:3000
+docker run -p 3000:80 -v "$PWD/data:/data" --env-file=.env essepl/scribe:latest
 ```
 
 The image bundles `faster-whisper` and pre-downloads the `base` model at build
-time, so local transcription works out of the box and fully offline. Pick a
-different size with a build arg (e.g. better accuracy):
+time, so local transcription works out of the box and fully offline. To bake in
+a different size (better accuracy), build from source with a build arg:
 
 ```bash
-docker compose build --build-arg WHISPER_MODEL=small
+docker build --build-arg WHISPER_MODEL=small -t essepl/scribe:latest .
 ```
 
-or at runtime via `WHISPER_MODEL` (downloaded on first use if not pre-baked).
+or override at runtime via `WHISPER_MODEL` (downloaded on first use if not
+pre-baked).
 
 ### 2. Fully local — a llama model + Whisper (nothing leaves the machine)
 
@@ -161,12 +176,15 @@ TRANSCRIPTION_PROVIDER=whisper
 ```
 
 ```bash
-docker compose up --build
+docker run -p 3000:80 -v "$PWD/data:/data" --env-file=.env \
+  --add-host=host.docker.internal:host-gateway essepl/scribe:latest
 ```
 
-`docker-compose.yml` already maps `host.docker.internal` to the host gateway, so
-this works on Linux too. Any OpenAI-compatible server works — llama.cpp
-(`http://host.docker.internal:8080/v1`), LM Studio (`:1234/v1`), etc.
+`--add-host=host.docker.internal:host-gateway` lets the container reach a server
+running on the host. It's needed on **Linux**; Docker Desktop on macOS/Windows
+resolves `host.docker.internal` automatically (the flag is harmless there). Any
+OpenAI-compatible server works — llama.cpp (`http://host.docker.internal:8080/v1`),
+LM Studio (`:1234/v1`), etc.
 
 ### 3. OpenAI (your key)
 
@@ -220,39 +238,23 @@ TRANSCRIPTION_PROVIDER=stub
 
 ### 6. CLI — process an existing recording without the browser
 
-Use the running container to turn a video you already have into a manual. Drop
-the file under `./data` (so the container can see it), then run the rake task:
+Turn a video you already have into a manual without starting the web server. Drop
+the file under `./data` (so the container can see it at `/data`), then run the
+rake task in a **one-shot container** (`--rm` removes it when done):
 
 ```bash
 cp ~/Desktop/demo.mp4 ./data/demo.mp4
-docker compose exec scribe bin/rails "scribe:ingest[/data/demo.mp4]"
+docker run --rm -v "$PWD/data:/data" --env-file=.env \
+  essepl/scribe:latest bin/rails "scribe:ingest[/data/demo.mp4]"
 ```
 
-It runs the whole pipeline inline and prints where the result files were written
-(e.g. `/data/storage/recordings/3/results/`). List recordings with:
+It runs the whole pipeline inline — no background worker needed — and prints
+where the result files landed, e.g. `/data/storage/recordings/3/results/` (on the
+host that's `./data/storage/recordings/3/results/`). List recordings with:
 
 ```bash
-docker compose exec scribe bin/rails scribe:list
-```
-
-You can also run a **one-shot container** (no long-running server) for pure CLI
-use:
-
-```bash
-docker run --rm -v "$PWD/data:/data" \
-  -e SECRET_KEY_BASE=$(openssl rand -hex 32) \
-  -e ANTHROPIC_API_KEY=sk-ant-... \
-  scribe bin/rails "scribe:ingest[/data/demo.mp4]"
-```
-
-### 7. Plain `docker run` (no compose)
-
-```bash
-docker build -t scribe .
-docker run -p 3000:80 -v "$PWD/data:/data" \
-  -e SECRET_KEY_BASE=$(openssl rand -hex 32) \
-  -e ANTHROPIC_API_KEY=sk-ant-... \
-  scribe
+docker run --rm -v "$PWD/data:/data" --env-file=.env \
+  essepl/scribe:latest bin/rails scribe:list
 ```
 
 ### Behind HTTPS
@@ -264,59 +266,76 @@ cookies.
 ### Common Docker commands
 
 ```bash
-docker compose up --build -d     # build + start in the background
-docker compose logs -f           # follow logs
-docker compose ps                # status
-docker compose down              # stop (your ./data is kept)
+# Run in the background with a name you can refer to:
+docker run -d --name scribe -p 3000:80 -v "$PWD/data:/data" --env-file=.env essepl/scribe:latest
+docker logs -f scribe            # follow logs
+docker ps                        # status
+docker stop scribe && docker rm scribe   # stop (your ./data is kept)
 
-# Update to a newer version of the code:
-git pull && docker compose up --build -d
+# Update to a newer image (data in ./data is preserved):
+docker pull essepl/scribe:latest
+docker stop scribe && docker rm scribe
+docker run -d --name scribe -p 3000:80 -v "$PWD/data:/data" --env-file=.env essepl/scribe:latest
 
-# Process an existing video / list recordings (see scenario 6):
-docker compose exec scribe bin/rails "scribe:ingest[/data/clip.mp4]"
-docker compose exec scribe bin/rails scribe:list
+# Process an existing video / list recordings (one-shot, no running server):
+docker run --rm -v "$PWD/data:/data" --env-file=.env essepl/scribe:latest bin/rails "scribe:ingest[/data/clip.mp4]"
+docker run --rm -v "$PWD/data:/data" --env-file=.env essepl/scribe:latest bin/rails scribe:list
 
-# Open a Rails console inside the container:
-docker compose exec scribe bin/rails console
+# Open a Rails console (in the running container, or one-shot with `docker run --rm -it … `):
+docker exec -it scribe bin/rails console
 
-# Start over: stop and delete all local data (irreversible):
-docker compose down && rm -rf ./data
+# Start over: delete all local data (irreversible):
+docker stop scribe && docker rm scribe && rm -rf ./data
 ```
 
-> First build is larger/slower than a typical Rails image because it bundles
-> ffmpeg, WeasyPrint, and a pre-downloaded local Whisper model. After that,
-> startup is fast and fully offline-capable. The database is created/migrated
-> automatically on first boot.
+> The image is larger than a typical Rails image because it bundles ffmpeg,
+> WeasyPrint, and a pre-downloaded local Whisper model — but it runs fully
+> offline-capable, and startup is fast. The database is created and migrated
+> automatically on every boot, so the first run just works.
 
 ---
 
-## What's in the data folder
+## Output & the data folder
 
-Everything persistent lives under `SCRIBE_DATA_DIR` (`/data` in Docker, `./data`
-locally). Mount or copy this one folder to move/back up all your data:
+Everything Scribe produces is written as plain files under `SCRIBE_DATA_DIR`
+(`/data` inside the container — i.e. your mounted `./data` on the host). Nothing
+is locked inside the database; mount or copy this one folder to move, back up, or
+inspect all your data.
 
 ```
 data/
-├── db/
-│   ├── scribe.sqlite3          # primary database
-│   ├── scribe_queue.sqlite3    # Solid Queue (jobs)
-│   └── …                       # cache/cable (production)
-├── tus/                        # in-flight resumable uploads
+├── db/                          # SQLite datastore (one file per database)
+│   ├── scribe.sqlite3           #   primary: recordings, transcripts, manuals
+│   ├── scribe_queue.sqlite3     #   Solid Queue (background jobs)
+│   └── scribe_cache.sqlite3, scribe_cable.sqlite3
+├── tus/                         # in-flight resumable uploads (transient)
 └── storage/
-    └── recordings/<id>/
-        ├── source.webm         # the uploaded/recorded video
-        ├── frames/…            # extracted screenshots
-        └── results/
-            ├── manual.json     # structured manual
-            ├── manual.md       # Markdown (references images/)
-            ├── manual.html     # self-contained HTML
-            ├── manual.pdf      # rendered PDF (if WeasyPrint present)
-            ├── images/step-NN.png
-            └── transcript.json
+    └── recordings/<id>/         # one folder per recording, keyed by its DB id
+        ├── source.<ext>         # the original recorded/uploaded video (.webm/.mp4/.mov/…)
+        ├── frames/              # every frame ffmpeg extracted (scene-change candidates)
+        │   └── <timestamp_ms>.png
+        └── results/             # ← the finished manual — this is what you publish
+            ├── manual.json      #   structured manual: title, summary, ordered steps
+            ├── manual.md        #   Markdown, references ./images/step-NN.png
+            ├── manual.html      #   self-contained HTML (images inlined)
+            ├── manual.pdf       #   rendered PDF (WeasyPrint; skipped if unavailable)
+            ├── images/          #   the one screenshot chosen per step
+            │   └── step-NN.png
+            └── transcript.json  #   full transcript + per-segment timings
 ```
 
-Result files are written automatically when a manual completes. Set
-`WRITE_RESULT_FILES=false` to keep results only in the database.
+**`results/` is the deliverable.** It's self-contained: `manual.md` uses relative
+`./images/...` links and `manual.html`/`manual.pdf` embed their images, so you can
+copy `results/` anywhere and it stays intact. The CLI prints this path on success
+(e.g. `/data/storage/recordings/3/results/`, which is
+`./data/storage/recordings/3/results/` on the host), and the web UI serves the
+same files.
+
+The two image locations differ on purpose: `frames/` holds the **full** set of
+extracted frames (handy if you re-run or want a different shot), while
+`results/images/` holds only the per-step screenshots the LLM picked for the
+manual. Result files are written automatically when a manual completes — set
+`WRITE_RESULT_FILES=false` to keep results in the database only.
 
 ---
 
