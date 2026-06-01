@@ -43,12 +43,25 @@ module RecordingIngest
     )
 
     if inline
-      TranscribeJob.perform_now(recording.id)
+      run_pipeline_inline { TranscribeJob.perform_now(recording.id) }
     else
       TranscribeJob.perform_later(recording.id)
     end
 
     recording.reload
+  end
+
+  # Inline means a one-shot run with no background worker. Each pipeline stage
+  # chains to the next with perform_later, so under the default solid_queue
+  # adapter only transcription would run and the rest would pile up on a queue
+  # nobody drains. Switching to the inline adapter makes those perform_later
+  # calls execute synchronously, so the whole chain completes in this process.
+  def run_pipeline_inline
+    previous = ActiveJob::Base.queue_adapter
+    ActiveJob::Base.queue_adapter = :inline
+    yield
+  ensure
+    ActiveJob::Base.queue_adapter = previous
   end
 
   # Probe the stored file for duration/mime via ffprobe (best-effort).

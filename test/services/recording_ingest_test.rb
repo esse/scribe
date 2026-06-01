@@ -19,6 +19,25 @@ class RecordingIngestTest < ActiveSupport::TestCase
     assert Storage.exists?(recording.storage_key)
   end
 
+  test "inline mode runs the chain under the inline adapter and restores it afterward" do
+    # The pipeline chains stage-to-stage with perform_later. A one-shot inline
+    # run has no worker, so it must execute those under the inline adapter or the
+    # pipeline would stall after transcription with jobs stuck on the queue.
+    path = Rails.root.join("test/fixtures/files/sample_recording.mp4").to_s
+    original = ActiveJob::Base.queue_adapter
+
+    adapter_during_run = nil
+    TranscribeJob.define_singleton_method(:perform_now) { |_id| adapter_during_run = ActiveJob::Base.queue_adapter }
+    begin
+      RecordingIngest.from_path(path, inline: true)
+    ensure
+      TranscribeJob.singleton_class.send(:remove_method, :perform_now)
+    end
+
+    assert_instance_of ActiveJob::QueueAdapters::InlineAdapter, adapter_during_run
+    assert_equal original, ActiveJob::Base.queue_adapter
+  end
+
   test "from_path raises for a missing file" do
     assert_raises(RecordingIngest::Error) { RecordingIngest.from_path("/no/such/file.mp4") }
   end
